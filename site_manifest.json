@@ -1,0 +1,11 @@
+{
+  "generated_at": "2026-03-14T23:44:57",
+  "year": 2026,
+  "capital": 1500000,
+  "entrypoint": "index.html",
+  "not_found_page": "404.html",
+  "platforms": [
+    "Cloudflare Pages",
+    "GitHub Pages"
+  ]
+}
