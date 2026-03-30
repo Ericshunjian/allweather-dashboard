@@ -168,10 +168,17 @@
 </head>
 <body>
 
+<div class="strategy-variant-nav" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px 18px;background:#102030;color:#f6efe2;border-bottom:1px solid rgba(255,255,255,.08);">
+  <span style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.72;">策略版本</span>
+  <a href="./" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:#f4efe4;color:#102030;font-weight:600;">风险平价 v2</a>
+  <a href="./sharpe/" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:rgba(255,255,255,.08);color:#f6efe2;font-weight:600;">Sharpe 直配</a>
+</div>
+
+
 <div class="header">
     <h1 id="dashboard-title">📊 全天候策略 v2 — 起始于 2026 年的区间回放</h1>
     <div id="dashboard-date" class="date">
-        回放起点: 2026-01-01 · 数据截至: 2026-03-30 · 生成时间: 2026-03-30 21:41
+        回放起点: 2026-01-01 · 数据截至: 2026-03-30 · 生成时间: 2026-03-30 22:37
     </div>
 </div>
 
@@ -1349,7 +1356,7 @@
             dashboardTitle.innerText = `📊 全天候策略 v2 — 起始于 ${state.selectedYear} 年的区间回放`;
         }
         if (dashboardDate) {
-            dashboardDate.innerText = `回放起点: ${state.selectedYear}-01-01 · 数据截至: ${state.latestDate} · 生成时间: 2026-03-30 21:41`;
+            dashboardDate.innerText = `回放起点: ${state.selectedYear}-01-01 · 数据截至: ${state.latestDate} · 生成时间: 2026-03-30 22:37`;
         }
         document.title = `全天候策略 — ${state.selectedYear}年起始区间回放`;
 
