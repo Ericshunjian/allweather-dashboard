@@ -193,7 +193,7 @@
 <div class="header">
     <h1 id="dashboard-title">📊 全天候策略 v2 — 起始于 2025 年的区间回放</h1>
     <div id="dashboard-date" class="date">
-        回放起点: 2025-01-01 · 数据截至: 2026-03-31 · 生成时间: 2026-03-31 23:56
+        回放起点: 2025-01-01 · 数据截至: 2026-03-31 · 生成时间: 2026-04-01 00:21
     </div>
 </div>
 
@@ -326,11 +326,11 @@
         <div id="chart-attribution" class="plotly-chart"></div>
     </div>
     <div class="card">
-        <h3>馃搳 骞村害鏀剁泭</h3>
+        <h3>📅 年度收益</h3>
         <div id="chart-yearly" class="plotly-chart"></div>
     </div>
     <div class="card full-width">
-        <h3>馃З 骞村害鏀剁泭褰掑洜</h3>
+        <h3>🧩 年度收益归因</h3>
         <div id="chart-yearly-attribution" class="plotly-chart"></div>
     </div>
     <div id="rebalance-section">
@@ -2128,7 +2128,7 @@
             dashboardTitle.innerText = `📊 全天候策略 v2 — 起始于 ${state.selectedYear} 年的区间回放`;
         }
         if (dashboardDate) {
-            dashboardDate.innerText = `回放起点: ${state.selectedYear}-01-01 · 数据截至: ${state.latestDate} · 生成时间: 2026-03-31 23:56`;
+            dashboardDate.innerText = `回放起点: ${state.selectedYear}-01-01 · 数据截至: ${state.latestDate} · 生成时间: 2026-04-01 00:21`;
         }
         document.title = `全天候策略 — ${state.selectedYear}年起始区间回放`;
 
@@ -2226,7 +2226,7 @@
             y: state.yearlyValues,
             type: 'bar',
             marker: { color: state.yearlyValues.map((value) => value >= 0 ? '#2E8B57' : '#DC143C'), opacity: 0.85 },
-            name: '骞村害鏀剁泭'
+            name: '年度收益'
         }], Object.assign({}, baseLayout, {
             height: 220,
             xaxis: Object.assign({}, baseLayout.xaxis, { type: 'category' }),
