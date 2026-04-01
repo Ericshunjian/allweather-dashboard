@@ -193,7 +193,7 @@
 <div class="header">
     <h1 id="dashboard-title">📊 全天候策略 v2 — 起始于 2025 年的区间回放</h1>
     <div id="dashboard-date" class="date">
-        回放起点: 2025-01-01 · 数据截至: 2026-04-01 · 生成时间: 2026-04-01 21:34
+        回放起点: 2025-01-01 · 数据截至: 2026-04-01 · 生成时间: 2026-04-01 21:58
     </div>
 </div>
 
@@ -1535,42 +1535,42 @@
         
         {
             x: mcMonths,
-            y: [0.01888, 0.02108, 0.04628, 0.036123, -0.004827, -0.00245, 0.001752, 0.005506, 0.034816, 0.017404, 0.007461, 0.006293, 0.04161, -0.000743, -0.018792, 0.005367],
+            y: [0.019156, 0.020945, 0.04715, 0.035287, -0.005012, -0.002475, 0.001742, 0.005576, 0.035401, 0.017401, 0.007286, 0.006284, 0.042181, -0.001386, -0.019121, 0.005367],
             name: '华安黄金ETF',
             type: 'bar',
             marker: {color: '#FF8C00', opacity: 0.8}
         },
         {
             x: mcMonths,
-            y: [-0.001077, -0.005563, 0.006448, 0.000309, 0.013434, 0.005314, 0.002742, 0.003829, -0.015215, 0.016686, 0.001825, -0.006302, 0.004525, 0.005951, -0.003907, 2.8e-05],
+            y: [-0.001217, -0.005556, 0.006598, -0.000217, 0.013363, 0.005294, 0.002804, 0.003986, -0.015542, 0.016744, 0.001599, -0.006375, 0.00421, 0.005691, -0.004133, 2.8e-05],
             name: '东证红利低波',
             type: 'bar',
             marker: {color: '#2E8B57', opacity: 0.8}
         },
         {
             x: mcMonths,
-            y: [0.000608, 0.005368, -0.000397, -0.005984, 0.004549, 0.009897, 0.012949, 0.03486, 0.013972, -0.001279, -0.00724, 0.011031, 0.01264, 0.004718, -0.022897, 0.0],
+            y: [0.000594, 0.005284, -0.000303, -0.006689, 0.004511, 0.009868, 0.012799, 0.035315, 0.013942, -0.001516, -0.007302, 0.010938, 0.013146, 0.004476, -0.022749, 0.0],
             name: '中证A500',
             type: 'bar',
             marker: {color: '#DC143C', opacity: 0.8}
         },
         {
             x: mcMonths,
-            y: [0.000611, -0.002268, -0.000691, 0.002196, -0.000981, 0.00032, -0.000736, -0.000864, 9.3e-05, 0.001197, -0.000885, -0.000129, 0.000669, 4e-06, 0.000134, -0.000281],
+            y: [0.000604, -0.00222, -0.000734, 0.002277, -0.000982, 0.000322, -0.000717, -0.000887, 8.3e-05, 0.001197, -0.000881, -0.000128, 0.000684, 3e-06, 0.00013, -0.000281],
             name: '10年期国债期货',
             type: 'bar',
             marker: {color: '#4169E1', opacity: 0.8}
         },
         {
             x: mcMonths,
-            y: [3.6e-05, 3.6e-05, 4.1e-05, 4.3e-05, 3.5e-05, 3.7e-05, 4.1e-05, 3.7e-05, 3.9e-05, 2.9e-05, 3.3e-05, 4.1e-05, 3.3e-05, 2.8e-05, 5e-05, 2e-06],
+            y: [3.6e-05, 3.5e-05, 4.2e-05, 4.3e-05, 3.5e-05, 3.7e-05, 4e-05, 3.7e-05, 4e-05, 2.9e-05, 3.3e-05, 4.1e-05, 3.4e-05, 2.9e-05, 4.9e-05, 2e-06],
             name: '现金利息',
             type: 'bar',
             marker: {color: '#90a4ae', opacity: 0.8}
         },
         {
             x: mcMonths,
-            y: [0.000206, -0.000505, 0.000961, -0.001639, -0.000443, -2.2e-05, -0.000188, 0.000527, 0.000232, -2e-06, -0.000593, -0.000194, 0.000882, -0.001145, -0.000392, -4.3e-05],
+            y: [9.1e-05, -0.000341, -0.000112, 0.000346, -0.000149, 4.8e-05, -0.000107, -0.000133, 1.2e-05, 0.000181, -0.000134, -2e-05, 0.000105, 1e-06, 2e-05, -4.3e-05],
             name: '残差',
             type: 'bar',
             marker: {color: '#616161', opacity: 0.8}
@@ -1739,6 +1739,18 @@
 
     function yearKey(dateStr) {
         return dateStr.slice(0, 4);
+    }
+
+    function linkPeriodContributions(rows, returns, componentCount) {
+        const linked = Array(componentCount).fill(0);
+        for (let idx = 0; idx < returns.length; idx += 1) {
+            const row = rows[idx] || [];
+            const periodRet = returns[idx] || 0;
+            for (let compIdx = 0; compIdx < componentCount; compIdx += 1) {
+                linked[compIdx] = linked[compIdx] * (1 + periodRet) + (row[compIdx] || 0);
+            }
+        }
+        return linked;
     }
 
     function buildMetricsHtml(metrics) {
@@ -2089,11 +2101,12 @@
         const var95 = returns.length ? percentile(returns, 0.05) : 0;
 
         const monthlyReturnsMap = new Map();
-        const monthlyContribsMap = new Map();
-        const monthlyCashInterestMap = new Map();
+        const monthlyExplainedRowsMap = new Map();
+        const monthlyReturnSeriesMap = new Map();
         const yearlyReturnsMap = new Map();
-        const yearlyContribsMap = new Map();
-        const yearlyCashInterestMap = new Map();
+        const yearlyExplainedRowsMap = new Map();
+        const yearlyReturnSeriesMap = new Map();
+        const explainedComponentCount = assetCodes.length + 1;
         returns.forEach((ret, idx) => {
             const key = monthKey(dates[idx]);
             const year = yearKey(dates[idx]);
@@ -2101,45 +2114,50 @@
             monthlyReturnsMap.set(key, prevMonthlyValue * (1 + ret));
             const prevYearlyValue = yearlyReturnsMap.get(year) ?? 1;
             yearlyReturnsMap.set(year, prevYearlyValue * (1 + ret));
-            const contrib = monthlyContribsMap.get(key) ?? Array(assetCodes.length).fill(0);
-            const yearlyContrib = yearlyContribsMap.get(year) ?? Array(assetCodes.length).fill(0);
+            const explainedRow = Array(explainedComponentCount).fill(0);
             const prevHistory = idx > 0 ? history[idx - 1] : null;
             const prevNav = prevHistory?.nav || 0;
             const cashInterest = prevNav > 1e-8 ? ((history[idx]?.daily_interest || 0) / prevNav) : 0;
-            monthlyCashInterestMap.set(key, (monthlyCashInterestMap.get(key) ?? 0) + cashInterest);
-            yearlyCashInterestMap.set(year, (yearlyCashInterestMap.get(year) ?? 0) + cashInterest);
+            explainedRow[assetCodes.length] = cashInterest;
             dailyReturns[idx].forEach((value, codeIdx) => {
                 if (idx === 0) return;
                 const prevSnapshot = history[idx - 1] || {};
                 const prevSnapshotNav = prevSnapshot.nav || 0;
                 const prevNominal = Math.abs(prevSnapshot[`${assetCodes[codeIdx]}_nominal`] || 0);
                 const exposure = prevSnapshotNav > 1e-8 ? prevNominal / prevSnapshotNav : 0;
-                contrib[codeIdx] += value * exposure;
-                yearlyContrib[codeIdx] += value * exposure;
+                explainedRow[codeIdx] = value * exposure;
             });
-            monthlyContribsMap.set(key, contrib);
-            yearlyContribsMap.set(year, yearlyContrib);
+            if (!monthlyExplainedRowsMap.has(key)) monthlyExplainedRowsMap.set(key, []);
+            monthlyExplainedRowsMap.get(key).push(explainedRow.slice());
+            if (!monthlyReturnSeriesMap.has(key)) monthlyReturnSeriesMap.set(key, []);
+            monthlyReturnSeriesMap.get(key).push(ret);
+            if (!yearlyExplainedRowsMap.has(year)) yearlyExplainedRowsMap.set(year, []);
+            yearlyExplainedRowsMap.get(year).push(explainedRow.slice());
+            if (!yearlyReturnSeriesMap.has(year)) yearlyReturnSeriesMap.set(year, []);
+            yearlyReturnSeriesMap.get(year).push(ret);
         });
         const monthlyLabels = Array.from(monthlyReturnsMap.keys());
         const monthlyValues = monthlyLabels.map((key) => (monthlyReturnsMap.get(key) || 1) - 1);
         const monthlyContribs = monthlyLabels.map((key, idx) => {
-            const row = [...monthlyContribsMap.get(key)];
-            const cashInterest = monthlyCashInterestMap.get(key) || 0;
-            row.push(cashInterest);
-            const total = row.reduce((sum, value) => sum + value, 0);
-            row.push(monthlyValues[idx] - total);
-            return row;
+            const explained = linkPeriodContributions(
+                monthlyExplainedRowsMap.get(key) || [],
+                monthlyReturnSeriesMap.get(key) || [],
+                explainedComponentCount
+            );
+            const total = explained.reduce((sum, value) => sum + value, 0);
+            return [...explained, monthlyValues[idx] - total];
         });
         const attributionNames = [...assetNames, '现金利息', '残差'];
         const yearlyLabels = Array.from(yearlyReturnsMap.keys());
         const yearlyValues = yearlyLabels.map((key) => (yearlyReturnsMap.get(key) || 1) - 1);
         const yearlyContribs = yearlyLabels.map((key, idx) => {
-            const row = [...(yearlyContribsMap.get(key) || Array(assetCodes.length).fill(0))];
-            const cashInterest = yearlyCashInterestMap.get(key) || 0;
-            row.push(cashInterest);
-            const total = row.reduce((sum, value) => sum + value, 0);
-            row.push(yearlyValues[idx] - total);
-            return row;
+            const explained = linkPeriodContributions(
+                yearlyExplainedRowsMap.get(key) || [],
+                yearlyReturnSeriesMap.get(key) || [],
+                explainedComponentCount
+            );
+            const total = explained.reduce((sum, value) => sum + value, 0);
+            return [...explained, yearlyValues[idx] - total];
         });
         const assetPerformance = assetCodes.map((_, codeIdx) => {
             const base = adjustedRows[0]?.[codeIdx] || 0;
@@ -2188,7 +2206,7 @@
             dashboardTitle.innerText = `📊 全天候策略 v2 — 起始于 ${state.selectedYear} 年的区间回放`;
         }
         if (dashboardDate) {
-            dashboardDate.innerText = `回放起点: ${state.selectedYear}-01-01 · 数据截至: ${state.latestDate} · 生成时间: 2026-04-01 21:34`;
+            dashboardDate.innerText = `回放起点: ${state.selectedYear}-01-01 · 数据截至: ${state.latestDate} · 生成时间: 2026-04-01 21:58`;
         }
         document.title = `全天候策略 — ${state.selectedYear}年起始区间回放`;
 
