@@ -193,7 +193,7 @@
 <div class="header">
     <h1 id="dashboard-title">📊 全天候策略 v2 — 起始于 2025 年的区间回放</h1>
     <div id="dashboard-date" class="date">
-        回放起点: 2025-01-01 · 数据截至: 2026-04-01 · 生成时间: 2026-04-01 20:59
+        回放起点: 2025-01-01 · 数据截至: 2026-04-01 · 生成时间: 2026-04-01 21:34
     </div>
 </div>
 
@@ -329,7 +329,7 @@
         <h3>📅 年度收益</h3>
         <div id="chart-yearly" class="plotly-chart"></div>
     </div>
-    <div class="card full-width">
+    <div class="card">
         <h3>🧩 年度收益归因</h3>
         <div id="chart-yearly-attribution" class="plotly-chart"></div>
     </div>
@@ -2188,7 +2188,7 @@
             dashboardTitle.innerText = `📊 全天候策略 v2 — 起始于 ${state.selectedYear} 年的区间回放`;
         }
         if (dashboardDate) {
-            dashboardDate.innerText = `回放起点: ${state.selectedYear}-01-01 · 数据截至: ${state.latestDate} · 生成时间: 2026-04-01 20:59`;
+            dashboardDate.innerText = `回放起点: ${state.selectedYear}-01-01 · 数据截至: ${state.latestDate} · 生成时间: 2026-04-01 21:34`;
         }
         document.title = `全天候策略 — ${state.selectedYear}年起始区间回放`;
 
@@ -2301,7 +2301,7 @@
             type: 'bar',
             marker: { color: attributionColors[idx], opacity: 0.8 }
         })), Object.assign({}, baseLayout, {
-            height: 280,
+            height: 220,
             barmode: 'relative',
             xaxis: Object.assign({}, baseLayout.xaxis, { type: 'category' }),
             yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
