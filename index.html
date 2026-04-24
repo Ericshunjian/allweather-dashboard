@@ -1934,10 +1934,19 @@
             snapshot.nominal_leverage = snapshot.nav > 1e-8 ? snapshot.nominal_exposure / snapshot.nav : 0;
 
             if (history.length && history[history.length - 1].date === date) {
+                if ((snapshot.daily_interest || 0) === 0 && (history[history.length - 1].daily_interest || 0) !== 0) {
+                    snapshot.daily_interest = history[history.length - 1].daily_interest || 0;
+                }
                 history[history.length - 1] = snapshot;
             } else {
                 history.push(snapshot);
             }
+        }
+
+        function syncLockedMargin(nextLockedMargin) {
+            const marginDelta = nextLockedMargin - lockedMargin;
+            availableCash -= marginDelta;
+            lockedMargin = nextLockedMargin;
         }
 
         function updatePrices(date, priceMap, executionMap) {
@@ -1957,7 +1966,7 @@
                     currentMargin += Math.abs(pos.shares * contractPrice * asset.multiplier) * asset.margin_rate;
                 }
             });
-            lockedMargin = currentMargin;
+            syncLockedMargin(currentMargin);
             const dailyInterest = (availableCash + lockedMargin) * (payload.simulation.cash_yield / 252.0);
             availableCash += dailyInterest;
             recordSnapshot(date, dailyInterest);
@@ -2033,7 +2042,7 @@
                 const facePrice = pos.face_price ?? pos.price;
                 postMargin += Math.abs(pos.shares * facePrice * asset.multiplier) * asset.margin_rate;
             });
-            lockedMargin = postMargin;
+            syncLockedMargin(postMargin);
             recordSnapshot(date);
         }
 
@@ -2123,9 +2132,12 @@
                 if (idx === 0) return;
                 const prevSnapshot = history[idx - 1] || {};
                 const prevSnapshotNav = prevSnapshot.nav || 0;
-                const prevNominal = Math.abs(prevSnapshot[`${assetCodes[codeIdx]}_nominal`] || 0);
-                const exposure = prevSnapshotNav > 1e-8 ? prevNominal / prevSnapshotNav : 0;
-                explainedRow[codeIdx] = value * exposure;
+                const asset = assets[assetCodes[codeIdx]];
+                const prevShares = prevSnapshot[`${assetCodes[codeIdx]}_shares`] || 0;
+                const prevPrice = adjustedRows[idx - 1]?.[codeIdx] || 0;
+                const currPrice = adjustedRows[idx]?.[codeIdx] || prevPrice;
+                const pnl = (currPrice - prevPrice) * prevShares * (asset?.multiplier || 1);
+                explainedRow[codeIdx] = prevSnapshotNav > 1e-8 ? pnl / prevSnapshotNav : 0;
             });
             if (!monthlyExplainedRowsMap.has(key)) monthlyExplainedRowsMap.set(key, []);
             monthlyExplainedRowsMap.get(key).push(explainedRow.slice());
