@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-02T10:09:21",
+  "year": 2026,
+  "capital": 5000000,
+  "entrypoint": "index.html",
+  "strategies": [
+    {
+      "id": "risk-parity",
+      "label": "风险平价 v2",
+      "path": "index.html"
+    },
+    {
+      "id": "sharpe-direct",
+      "label": "Sharpe 直配",
+      "path": "sharpe/index.html"
+    }
+  ],
+  "not_found_page": "404.html",
+  "platforms": [
+    "Cloudflare Pages",
+    "GitHub Pages"
+  ]
+}
