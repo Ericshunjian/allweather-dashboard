@@ -1195,6 +1195,71 @@
     renderDonut("strategy-donut", strategies, { centerLabel: "总敞口", emptyMessage: "尚无已归类的策略资产" });
   }
 
+  function renderDailyContribution(metrics) {
+    const chart = $("daily-contribution-chart");
+    chart.replaceChildren();
+    const grouped = new Map();
+    metrics.rows.forEach(({ item, calc }) => {
+      const identity = holdingGroupIdentity(item) || { key: `item:${item.id}`, label: item.name || "未命名资产" };
+      const groupKey = identity.key.replace(/^(?:underlying|known):/, "label:");
+      const current = grouped.get(groupKey) || { ...identity, key: groupKey, value: 0 };
+      current.value += calc.dailyPnlCny;
+      grouped.set(groupKey, current);
+    });
+    const contributions = [...grouped.values()].filter((item) => Math.abs(item.value) >= 0.005);
+    const gains = contributions
+      .filter((item) => item.value > 0)
+      .sort((left, right) => right.value - left.value)
+      .slice(0, 3);
+    const losses = contributions
+      .filter((item) => item.value < 0)
+      .sort((left, right) => left.value - right.value)
+      .slice(0, 3);
+    const selected = [...gains, ...losses];
+    if (!selected.length) {
+      const empty = document.createElement("div");
+      empty.className = "daily-contribution-empty";
+      empty.textContent = vault.holdings.length ? "今日暂无可显示的价格变动" : "录入并刷新行情后显示当日贡献";
+      chart.appendChild(empty);
+      return;
+    }
+
+    const axis = document.createElement("div");
+    axis.className = "daily-contribution-axis";
+    const axisTrack = document.createElement("div");
+    axisTrack.className = "daily-contribution-axis-track";
+    const lossLabel = document.createElement("span");
+    lossLabel.textContent = "亏损 ←";
+    const gainLabel = document.createElement("span");
+    gainLabel.textContent = "→ 盈利";
+    axisTrack.append(lossLabel, gainLabel);
+    axis.append(document.createElement("span"), axisTrack, document.createElement("span"));
+    chart.appendChild(axis);
+
+    const maxAbsolute = Math.max(...selected.map((item) => Math.abs(item.value)), 1e-12);
+    selected.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "daily-contribution-row";
+      const label = document.createElement("span");
+      label.className = "daily-contribution-label";
+      label.textContent = item.label;
+      label.title = item.label;
+      const track = document.createElement("div");
+      track.className = "daily-contribution-track";
+      const bar = document.createElement("span");
+      const direction = item.value > 0 ? "positive" : "negative";
+      bar.className = `daily-contribution-bar ${direction}`;
+      bar.style.width = `${Math.abs(item.value) / maxAbsolute * 50}%`;
+      track.appendChild(bar);
+      const value = document.createElement("strong");
+      value.className = `daily-contribution-value ${direction}`;
+      value.textContent = item.value > 0 ? `+${formatMoney(item.value)}` : formatMoney(item.value);
+      row.setAttribute("aria-label", `${item.label} ${item.value > 0 ? "盈利贡献" : "亏损贡献"}${value.textContent}`);
+      row.append(label, track, value);
+      chart.appendChild(row);
+    });
+  }
+
   function appendCell(row, label, content) {
     const cell = document.createElement("td");
     cell.dataset.label = label;
@@ -1607,6 +1672,7 @@
     renderSummary(metrics);
     renderAllocation(metrics);
     renderStrategy(metrics);
+    renderDailyContribution(metrics);
     renderHoldingInsights(metrics);
     renderHoldings(metrics);
     renderHistory();
