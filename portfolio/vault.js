@@ -796,6 +796,31 @@
     return fetchTencentQuote(symbol);
   }
 
+  function linkedFundFallbackQuoteId(item, primaryQuoteId) {
+    const code = String(item.code || "").trim().toUpperCase().replace(/\.OF$/i, "");
+    if (item.assetType !== "etf" || !/^0\d{5}$/.test(code)) return "";
+    const fallbackQuoteId = `tencent:jj${code}`;
+    return fallbackQuoteId === primaryQuoteId ? "" : fallbackQuoteId;
+  }
+
+  async function fetchHoldingQuote(item) {
+    const primaryQuoteId = inferQuoteId(item);
+    if (!primaryQuoteId) throw new Error("代码不支持");
+    try {
+      return { quote: await fetchQuote(primaryQuoteId), quoteId: primaryQuoteId };
+    } catch (primaryError) {
+      const fallbackQuoteId = linkedFundFallbackQuoteId(item, primaryQuoteId);
+      if (!fallbackQuoteId) throw primaryError;
+      try {
+        const quote = await fetchQuote(fallbackQuoteId);
+        item.quoteId = fallbackQuoteId;
+        return { quote, quoteId: fallbackQuoteId };
+      } catch (fallbackError) {
+        throw primaryError;
+      }
+    }
+  }
+
   async function loadStrategyTarget() {
     try {
       const response = await fetch(`strategy-target.json?v=${Date.now()}`, { cache: "no-store" });
@@ -808,6 +833,10 @@
 
   function fundUsesEstimatedShares(item) {
     return ["fund", "etf"].includes(item.assetType) && item.fundInputMode === "amount";
+  }
+
+  function holdingUsesFundNav(item) {
+    return item.assetType === "fund" || /(?:^|:)jj\d{6}$/i.test(String(item.quoteId || item.resolvedQuoteId || ""));
   }
 
   function fundNeedsCalibration(item) {
@@ -871,8 +900,8 @@
         return;
       }
       try {
-        const quote = await fetchQuote(quoteId);
-        applyQuoteToHolding(item, quote, quoteId);
+        const result = await fetchHoldingQuote(item);
+        applyQuoteToHolding(item, result.quote, result.quoteId);
         success += 1;
       } catch (error) {
         item.quoteStatus = "更新失败";
@@ -1384,7 +1413,7 @@
     quote.textContent = item.pricingMode === "auto" ? (item.quoteStatus || "待刷新") : "本地估值";
     if (item.pricingMode === "auto") {
       const calibration = fundUsesEstimatedShares(item) && item.fundCalibratedAt
-        ? `校准 ${String(item.fundCalibratedAt).slice(0, 10)} · ${item.assetType === "etf" ? "价格" : "净值"} ${formatQuotePrice(item.fundCalibrationNav, item.currency)}`
+        ? `校准 ${String(item.fundCalibratedAt).slice(0, 10)} · ${holdingUsesFundNav(item) ? "净值" : "价格"} ${formatQuotePrice(item.fundCalibrationNav, item.currency)}`
         : "";
       const details = [item.resolvedQuoteId, calibration, item.quoteError].filter(Boolean).join(" · ");
       if (details) quote.title = details;
@@ -1709,7 +1738,7 @@
       && Math.abs(amount - numeric(existing.fundSeedAmount)) < 0.005
       && existing.fundCalibratedAt;
     hint.textContent = unchanged
-      ? `已按 ${String(existing.fundCalibratedAt).slice(0, 10)} ${existing.assetType === "etf" ? "价格" : "净值"} ${formatQuotePrice(existing.fundCalibrationNav, existing.currency)} 估算；修改金额会重新校准`
+      ? `已按 ${String(existing.fundCalibratedAt).slice(0, 10)} ${holdingUsesFundNav(existing) ? "净值" : "价格"} ${formatQuotePrice(existing.fundCalibrationNav, existing.currency)} 估算；修改金额会重新校准`
       : `保存时按最新${$("holding-type").value === "etf" ? "价格" : "已公布净值"}估算份额`;
   }
 
@@ -1892,10 +1921,9 @@
       saveButton.textContent = item.assetType === "etf" ? "正在读取行情" : "正在读取净值";
       $("holding-form-error").textContent = "";
       try {
-        const quoteId = inferQuoteId(item);
-        const quote = await fetchQuote(quoteId);
-        applyQuoteToHolding(item, quote, quoteId);
-        if (!item.name) item.name = quote.name || `${item.assetType === "etf" ? "ETF" : "基金"} ${item.code}`;
+        const result = await fetchHoldingQuote(item);
+        applyQuoteToHolding(item, result.quote, result.quoteId);
+        if (!item.name) item.name = result.quote.name || `${item.assetType === "etf" ? "ETF" : "基金"} ${item.code}`;
       } catch (calibrationError) {
         $("holding-form-error").textContent = `暂时没有取到${item.assetType === "etf" ? " ETF 行情" : "基金净值"}：${calibrationError?.message || "请稍后重试"}`;
         saveButton.disabled = false;
@@ -1913,7 +1941,7 @@
     renderAll();
     saveButton.disabled = false;
     saveButton.textContent = "保存资产";
-    showToast(calibratingFund ? `已按${item.assetType === "etf" ? "价格" : "净值"} ${formatQuotePrice(item.fundCalibrationNav, item.currency)} 估算 ${formatNumber(item.quantity)} 份` : (index >= 0 ? "资产已更新" : "资产已添加"));
+    showToast(calibratingFund ? `已按${holdingUsesFundNav(item) ? "净值" : "价格"} ${formatQuotePrice(item.fundCalibrationNav, item.currency)} 估算 ${formatNumber(item.quantity)} 份` : (index >= 0 ? "资产已更新" : "资产已添加"));
     if (item.pricingMode === "auto" && !calibratingFund) refreshQuotes({ silent: true });
   }
 
