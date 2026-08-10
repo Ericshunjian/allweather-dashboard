@@ -2,7 +2,11 @@
   "use strict";
 
   const AUTH = window.PORTFOLIO_VAULT_AUTH;
+  const SYNC_CONFIG = window.PORTFOLIO_SYNC_CONFIG || {};
   const STORAGE_KEY = "allweather.portfolio.vault.v1";
+  const LOCAL_USER_DATA_KEY = "allweather.portfolio.vault.has-user-data.v1";
+  const SYNC_SESSION_KEY = "allweather.portfolio.sync.session.v1";
+  const SYNC_LAST_AT_KEY = "allweather.portfolio.sync.last-at.v1";
   const VAULT_AAD = "allweather-portfolio-vault-data-v1";
   const AUTH_PLAINTEXT = "allweather-portfolio-vault-unlocked-v1";
   const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -47,6 +51,12 @@
   let pendingDeleteId = null;
   let lockTimer = null;
   let toastTimer = null;
+  let cloudSession = null;
+  let cloudSyncPromise = null;
+  let cloudUploadTimer = null;
+  let pendingEncryptedVault = null;
+  let hadLocalVault = false;
+  let localVaultHasUserChanges = false;
 
   const $ = (id) => document.getElementById(id);
   const lockScreen = $("lock-screen");
@@ -58,6 +68,7 @@
   const holdingDialog = $("holding-dialog");
   const holdingForm = $("holding-form");
   const confirmDialog = $("confirm-dialog");
+  const syncDialog = $("sync-dialog");
 
   function bytesFromBase64(value) {
     const binary = atob(value);
@@ -166,20 +177,289 @@
     };
   }
 
-  async function persistVault() {
+  async function persistVault(options = {}) {
     if (!sessionKey || !vault) return;
     vault.updatedAt = new Date().toISOString();
-    localStorage.setItem(STORAGE_KEY, await encryptVault(vault));
+    const encrypted = await encryptVault(vault);
+    localStorage.setItem(STORAGE_KEY, encrypted);
+    hadLocalVault = true;
+    if (options.cloud !== false) queueCloudUpload(encrypted);
   }
 
   async function loadVault() {
     const stored = localStorage.getItem(STORAGE_KEY);
+    hadLocalVault = Boolean(stored);
+    localVaultHasUserChanges = localStorage.getItem(LOCAL_USER_DATA_KEY) === "true";
     if (!stored) {
       vault = createEmptyVault();
-      await persistVault();
+      localStorage.setItem(STORAGE_KEY, await encryptVault(vault));
       return;
     }
     vault = await decryptVault(stored);
+    if (vault.holdings.length > 0) localVaultHasUserChanges = true;
+  }
+
+  function markLocalUserChange() {
+    localVaultHasUserChanges = true;
+    localStorage.setItem(LOCAL_USER_DATA_KEY, "true");
+  }
+
+  function syncConfigured() {
+    try {
+      const url = new URL(String(SYNC_CONFIG.url || ""));
+      return url.protocol === "https:" && Boolean(String(SYNC_CONFIG.publishableKey || "").trim());
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function syncBaseUrl() {
+    return String(SYNC_CONFIG.url || "").replace(/\/$/, "");
+  }
+
+  function setSyncStatus(state, label) {
+    const status = $("sync-status");
+    status.dataset.state = state;
+    status.textContent = label;
+  }
+
+  function formatSyncTime(value) {
+    if (!value) return "尚未同步";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "尚未同步";
+    return `上次同步 ${date.toLocaleString("zh-CN", { hour12: false })}`;
+  }
+
+  function normalizeCloudSession(payload, fallback = {}) {
+    const expiresIn = Number(payload.expires_in || fallback.expires_in || 3600);
+    return {
+      accessToken: payload.access_token || fallback.accessToken,
+      refreshToken: payload.refresh_token || fallback.refreshToken,
+      expiresAt: Number(payload.expires_at || 0) || Math.floor(Date.now() / 1000) + expiresIn,
+      user: payload.user || fallback.user
+    };
+  }
+
+  function saveCloudSession(session) {
+    cloudSession = session;
+    if (session?.accessToken && session?.refreshToken && session?.user?.id) {
+      localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify(session));
+    } else {
+      localStorage.removeItem(SYNC_SESSION_KEY);
+    }
+    renderSyncAccount();
+  }
+
+  function clearCloudSession() {
+    cloudSession = null;
+    localStorage.removeItem(SYNC_SESSION_KEY);
+    renderSyncAccount();
+    setSyncStatus(syncConfigured() ? "local" : "error", syncConfigured() ? "未登录" : "未配置");
+  }
+
+  async function cloudRequest(path, options = {}) {
+    if (!syncConfigured()) throw new Error("云同步尚未配置");
+    const headers = {
+      apikey: String(SYNC_CONFIG.publishableKey),
+      Authorization: `Bearer ${options.accessToken || String(SYNC_CONFIG.publishableKey)}`,
+      ...options.headers
+    };
+    if (options.body !== undefined) headers["Content-Type"] = "application/json";
+    const response = await fetch(`${syncBaseUrl()}${path}`, {
+      method: options.method || "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      cache: "no-store",
+      referrerPolicy: "no-referrer"
+    });
+    const text = await response.text();
+    let payload = null;
+    if (text) {
+      try { payload = JSON.parse(text); } catch (error) { payload = text; }
+    }
+    if (!response.ok) {
+      const message = payload?.msg || payload?.message || payload?.error_description || `HTTP ${response.status}`;
+      const requestError = new Error(message);
+      requestError.status = response.status;
+      throw requestError;
+    }
+    return payload;
+  }
+
+  async function refreshCloudSession() {
+    if (!cloudSession?.refreshToken) return null;
+    try {
+      const payload = await cloudRequest("/auth/v1/token?grant_type=refresh_token", {
+        method: "POST",
+        body: { refresh_token: cloudSession.refreshToken }
+      });
+      saveCloudSession(normalizeCloudSession(payload, cloudSession));
+      return cloudSession;
+    } catch (error) {
+      clearCloudSession();
+      throw new Error("同步账户登录已失效，请重新登录");
+    }
+  }
+
+  async function ensureCloudSession() {
+    if (!cloudSession) return null;
+    if (cloudSession.expiresAt > Math.floor(Date.now() / 1000) + 60) return cloudSession;
+    return refreshCloudSession();
+  }
+
+  async function restoreCloudSession() {
+    if (!syncConfigured()) {
+      setSyncStatus("error", "未配置");
+      return null;
+    }
+    try {
+      const stored = JSON.parse(localStorage.getItem(SYNC_SESSION_KEY) || "null");
+      if (!stored?.accessToken || !stored?.refreshToken || !stored?.user?.id) {
+        setSyncStatus("local", "未登录");
+        return null;
+      }
+      cloudSession = stored;
+      await ensureCloudSession();
+      renderSyncAccount();
+      return cloudSession;
+    } catch (error) {
+      clearCloudSession();
+      return null;
+    }
+  }
+
+  async function signInCloud(email, password) {
+    const payload = await cloudRequest("/auth/v1/token?grant_type=password", {
+      method: "POST",
+      body: { email, password }
+    });
+    saveCloudSession(normalizeCloudSession(payload));
+    return cloudSession;
+  }
+
+  async function signUpCloud(email, password) {
+    const payload = await cloudRequest("/auth/v1/signup", {
+      method: "POST",
+      body: { email, password }
+    });
+    if (payload?.access_token && payload?.refresh_token) {
+      saveCloudSession(normalizeCloudSession(payload));
+      return true;
+    }
+    return false;
+  }
+
+  async function fetchRemoteVault() {
+    const session = await ensureCloudSession();
+    if (!session) throw new Error("请先登录同步账户");
+    const userId = encodeURIComponent(session.user.id);
+    const rows = await cloudRequest(`/rest/v1/portfolio_vaults?select=vault,client_updated_at,updated_at&user_id=eq.${userId}&limit=1`, {
+      accessToken: session.accessToken
+    });
+    return Array.isArray(rows) ? rows[0] || null : null;
+  }
+
+  async function uploadRemoteVault(encrypted, clientUpdatedAt) {
+    const session = await ensureCloudSession();
+    if (!session) throw new Error("请先登录同步账户");
+    await cloudRequest("/rest/v1/portfolio_vaults?on_conflict=user_id", {
+      method: "POST",
+      accessToken: session.accessToken,
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: {
+        user_id: session.user.id,
+        vault: JSON.parse(encrypted),
+        client_updated_at: clientUpdatedAt
+      }
+    });
+  }
+
+  function markSyncComplete() {
+    const now = new Date().toISOString();
+    localStorage.setItem(SYNC_LAST_AT_KEY, now);
+    setSyncStatus("synced", "已同步");
+    renderSyncAccount();
+  }
+
+  async function synchronizeVault(options = {}) {
+    if (!sessionKey || !vault || !cloudSession || !syncConfigured()) return;
+    if (cloudSyncPromise) return cloudSyncPromise;
+    cloudSyncPromise = (async () => {
+      setSyncStatus("syncing", "同步中");
+      try {
+        const remote = await fetchRemoteVault();
+        const localRaw = localStorage.getItem(STORAGE_KEY);
+        if (!remote?.vault) {
+          if (localRaw) await uploadRemoteVault(localRaw, vault.updatedAt);
+          markSyncComplete();
+          if (!options.silent) showToast("本机加密台账已上传");
+          return;
+        }
+        const remoteRaw = JSON.stringify(remote.vault);
+        const remoteVault = await decryptVault(remoteRaw);
+        const remoteTime = Date.parse(remoteVault.updatedAt || remote.client_updated_at || 0) || 0;
+        const localTime = Date.parse(vault.updatedAt || 0) || 0;
+        if (!localVaultHasUserChanges || !hadLocalVault || remoteTime > localTime) {
+          vault = remoteVault;
+          localStorage.setItem(STORAGE_KEY, remoteRaw);
+          hadLocalVault = true;
+          markLocalUserChange();
+          renderAll();
+          if (!options.silent) showToast("已下载云端较新的资产数据");
+        } else if (localTime > remoteTime && localRaw) {
+          await uploadRemoteVault(localRaw, vault.updatedAt);
+          if (!options.silent) showToast("本机较新的资产数据已上传");
+        } else if (!options.silent) {
+          showToast("本机与云端已经一致");
+        }
+        markSyncComplete();
+      } catch (error) {
+        setSyncStatus("error", "同步失败");
+        $("sync-panel-error").textContent = error.message;
+        if (!options.silent) showToast(`同步失败：${error.message}`);
+        throw error;
+      } finally {
+        cloudSyncPromise = null;
+      }
+    })();
+    return cloudSyncPromise;
+  }
+
+  function queueCloudUpload(encrypted) {
+    if (!cloudSession || !syncConfigured()) return;
+    pendingEncryptedVault = encrypted;
+    clearTimeout(cloudUploadTimer);
+    setSyncStatus("syncing", "待同步");
+    cloudUploadTimer = setTimeout(async () => {
+      const payload = pendingEncryptedVault;
+      const clientUpdatedAt = vault?.updatedAt || new Date().toISOString();
+      pendingEncryptedVault = null;
+      try {
+        await uploadRemoteVault(payload, clientUpdatedAt);
+        markSyncComplete();
+      } catch (error) {
+        setSyncStatus("error", "同步失败");
+        pendingEncryptedVault = payload;
+      }
+    }, 800);
+  }
+
+  function renderSyncAccount() {
+    if (!syncDialog) return;
+    const configured = syncConfigured();
+    $("sync-unavailable").hidden = configured;
+    $("sync-auth-form").hidden = !configured || Boolean(cloudSession);
+    $("sync-account-panel").hidden = !configured || !cloudSession;
+    $("sync-account-email").textContent = cloudSession?.user?.email || "—";
+    $("sync-last-time").textContent = formatSyncTime(localStorage.getItem(SYNC_LAST_AT_KEY));
+  }
+
+  function openSyncDialog() {
+    $("sync-auth-error").textContent = "";
+    $("sync-panel-error").textContent = "";
+    renderSyncAccount();
+    syncDialog.showModal();
+    if (syncConfigured() && !cloudSession) $("sync-email").focus();
   }
 
   function resetLockTimer() {
@@ -192,6 +472,7 @@
     clearTimeout(lockTimer);
     sessionKey = null;
     vault = null;
+    if (syncDialog?.open) syncDialog.close();
     app.hidden = true;
     lockScreen.hidden = false;
     passwordInput.value = "";
@@ -899,6 +1180,7 @@
     const index = vault.holdings.findIndex((holding) => holding.id === item.id);
     if (index >= 0) vault.holdings[index] = item;
     else vault.holdings.push(item);
+    markLocalUserChange();
     await persistVault();
     holdingDialog.close();
     renderAll();
@@ -908,6 +1190,7 @@
 
   async function deleteHolding(id) {
     vault.holdings = vault.holdings.filter((item) => item.id !== id);
+    markLocalUserChange();
     await persistVault();
     renderAll();
     showToast("资产已删除");
@@ -941,7 +1224,8 @@
       const raw = JSON.stringify(backup.vault);
       const imported = await decryptVault(raw);
       vault = imported;
-      localStorage.setItem(STORAGE_KEY, raw);
+      markLocalUserChange();
+      await persistVault();
       renderAll();
       showToast("加密备份已导入");
     } catch (error) {
@@ -971,15 +1255,79 @@
       resetLockTimer();
       await loadStrategyTarget();
       renderAll();
-      refreshQuotes({ silent: true });
     } catch (error) {
       sessionKey = null;
       unlockError.textContent = "密码不正确";
       passwordInput.select();
+      return;
     } finally {
       unlockButton.disabled = false;
       unlockButton.textContent = "解锁台账";
     }
+    await restoreCloudSession();
+    if (cloudSession) {
+      try { await synchronizeVault({ silent: true }); } catch (error) { /* Local vault remains available offline. */ }
+    }
+    refreshQuotes({ silent: true });
+  }
+
+  async function handleSyncSignIn(event) {
+    event.preventDefault();
+    const email = $("sync-email").value.trim();
+    const password = $("sync-password").value;
+    $("sync-auth-error").textContent = "";
+    $("sign-in-sync").disabled = true;
+    $("create-sync-account").disabled = true;
+    try {
+      await signInCloud(email, password);
+      $("sync-password").value = "";
+      await synchronizeVault();
+    } catch (error) {
+      $("sync-auth-error").textContent = error.message;
+      setSyncStatus("error", "登录失败");
+    } finally {
+      $("sign-in-sync").disabled = false;
+      $("create-sync-account").disabled = false;
+    }
+  }
+
+  async function handleSyncSignUp() {
+    const email = $("sync-email").value.trim();
+    const password = $("sync-password").value;
+    if (!email || password.length < 8) {
+      $("sync-auth-error").textContent = "请填写邮箱和至少 8 位的同步账户密码";
+      return;
+    }
+    $("sync-auth-error").textContent = "";
+    $("sign-in-sync").disabled = true;
+    $("create-sync-account").disabled = true;
+    try {
+      const signedIn = await signUpCloud(email, password);
+      $("sync-password").value = "";
+      if (signedIn) {
+        await synchronizeVault();
+      } else {
+        $("sync-auth-error").textContent = "账户已创建，请先到邮箱完成验证，再回来登录同步";
+        showToast("验证邮件已发送");
+      }
+    } catch (error) {
+      $("sync-auth-error").textContent = error.message;
+    } finally {
+      $("sign-in-sync").disabled = false;
+      $("create-sync-account").disabled = false;
+    }
+  }
+
+  async function disconnectCloud() {
+    const accessToken = cloudSession?.accessToken;
+    try {
+      if (accessToken) await cloudRequest("/auth/v1/logout", { method: "POST", accessToken });
+    } catch (error) {
+      // Clearing the local session is sufficient even if the network is unavailable.
+    }
+    clearCloudSession();
+    $("sync-panel-error").textContent = "";
+    showToast("已退出同步账户；本机加密数据仍保留");
   }
 
   unlockForm.addEventListener("submit", unlock);
@@ -992,6 +1340,17 @@
   $("lock-vault").addEventListener("click", lockVault);
   $("refresh-quotes").addEventListener("click", () => refreshQuotes());
   $("add-holding").addEventListener("click", () => openHoldingDialog());
+  $("open-sync").addEventListener("click", openSyncDialog);
+  $("close-sync-dialog").addEventListener("click", () => syncDialog.close());
+  $("sync-auth-form").addEventListener("submit", handleSyncSignIn);
+  $("create-sync-account").addEventListener("click", handleSyncSignUp);
+  $("sync-now").addEventListener("click", async () => {
+    $("sync-panel-error").textContent = "";
+    $("sync-now").disabled = true;
+    try { await synchronizeVault(); } catch (error) { /* Error is rendered by synchronizeVault. */ }
+    finally { $("sync-now").disabled = false; }
+  });
+  $("disconnect-sync").addEventListener("click", disconnectCloud);
   $("export-vault").addEventListener("click", exportBackup);
   $("import-file").addEventListener("change", (event) => importBackup(event.target.files?.[0]));
   $("close-dialog").addEventListener("click", () => holdingDialog.close());
@@ -1029,4 +1388,12 @@
   ["pointerdown", "keydown", "touchstart"].forEach((eventName) => {
     document.addEventListener(eventName, resetLockTimer, { passive: true });
   });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && sessionKey && cloudSession) {
+      synchronizeVault({ silent: true }).catch(() => {});
+    }
+  });
+
+  setSyncStatus(syncConfigured() ? "local" : "error", syncConfigured() ? "未登录" : "未配置");
 })();

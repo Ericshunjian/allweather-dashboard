@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://stock.finance.sina.com.cn; style-src 'self'; connect-src 'self' https://qt.gtimg.cn; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://stock.finance.sina.com.cn; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
   <link rel="stylesheet" href="vault.css">
@@ -16,7 +16,7 @@
       <div class="brand-mark" aria-hidden="true">AW</div>
       <p class="eyebrow">ALL WEATHER</p>
       <h1 id="unlock-title">个人资产台账</h1>
-      <p class="unlock-status">持仓数据仅加密保存在本设备</p>
+      <p class="unlock-status">持仓始终加密保存，解锁后可同步到其他设备</p>
       <form id="unlock-form" class="unlock-form">
         <input type="text" name="username" autocomplete="username" value="portfolio-owner" hidden>
         <label for="vault-password">访问密码</label>
@@ -40,6 +40,10 @@
       <nav class="header-actions" aria-label="资产台账操作">
         <button id="refresh-quotes" class="secondary-button" type="button">刷新行情</button>
         <button id="add-holding" class="primary-button" type="button">添加资产</button>
+        <button id="open-sync" class="secondary-button sync-button" type="button">
+          云同步
+          <span id="sync-status" class="sync-dot" data-state="local">仅本机</span>
+        </button>
         <button id="export-vault" class="secondary-button" type="button">导出备份</button>
         <label class="secondary-button file-button" for="import-file">导入备份</label>
         <input id="import-file" type="file" accept="application/json,.json" hidden>
@@ -254,6 +258,44 @@
     </form>
   </dialog>
 
+  <dialog id="sync-dialog" class="sync-dialog">
+    <div class="dialog-header">
+      <div>
+        <p class="eyebrow">ENCRYPTED SYNC</p>
+        <h2>加密云同步</h2>
+      </div>
+      <button id="close-sync-dialog" class="icon-button" type="button" aria-label="关闭" title="关闭">关闭</button>
+    </div>
+    <p class="sync-privacy-note">资产在本机加密后才会上传。云端只保存密文，无法读取资产名称、金额或持仓。</p>
+    <div id="sync-unavailable" class="sync-notice" hidden>
+      云同步尚未配置。请先按 <code>SYNC_SETUP.md</code> 创建 Supabase 项目并填写 <code>sync-config.js</code>。
+    </div>
+    <form id="sync-auth-form" class="sync-auth-form">
+      <label>同步账户邮箱
+        <input id="sync-email" type="email" autocomplete="username" required placeholder="name@example.com">
+      </label>
+      <label>同步账户密码
+        <input id="sync-password" type="password" minlength="8" autocomplete="current-password" required>
+      </label>
+      <p id="sync-auth-error" class="form-error" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button id="create-sync-account" class="secondary-button" type="button">创建账户</button>
+        <button id="sign-in-sync" class="primary-button" type="submit">登录并同步</button>
+      </div>
+    </form>
+    <section id="sync-account-panel" class="sync-account-panel" hidden>
+      <dl class="sync-account-details">
+        <div><dt>同步账户</dt><dd id="sync-account-email">—</dd></div>
+        <div><dt>同步状态</dt><dd id="sync-last-time">尚未同步</dd></div>
+      </dl>
+      <p id="sync-panel-error" class="form-error" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions sync-account-actions">
+        <button id="disconnect-sync" class="text-button" type="button">退出同步账户</button>
+        <button id="sync-now" class="primary-button" type="button">立即同步</button>
+      </div>
+    </section>
+  </dialog>
+
   <dialog id="confirm-dialog" class="confirm-dialog">
     <form method="dialog">
       <h2>删除这项资产？</h2>
@@ -266,6 +308,7 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
   <script src="vault.js"></script>
 </body>

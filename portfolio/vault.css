@@ -231,6 +231,39 @@ input::placeholder {
   margin-top: 18px;
 }
 
+.sync-button {
+  gap: 8px;
+}
+
+.sync-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.sync-dot::before {
+  width: 7px;
+  height: 7px;
+  content: "";
+  background: #a6b0b8;
+  border-radius: 50%;
+}
+
+.sync-dot[data-state="syncing"]::before {
+  background: var(--gold);
+}
+
+.sync-dot[data-state="synced"]::before {
+  background: var(--green);
+}
+
+.sync-dot[data-state="error"]::before {
+  background: var(--red);
+}
+
 .form-error {
   min-height: 18px;
   margin: 10px 0 0;
@@ -612,6 +645,75 @@ dialog::backdrop {
 
 .holding-dialog form {
   padding: 22px;
+}
+
+.sync-dialog {
+  width: min(520px, calc(100% - 28px));
+  padding: 22px;
+}
+
+.sync-privacy-note {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.sync-notice {
+  margin-top: 18px;
+  padding: 13px 14px;
+  color: #6d4a0d;
+  background: #fff8e8;
+  border: 1px solid #ead8ae;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.sync-auth-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.sync-auth-form > label {
+  display: grid;
+  gap: 7px;
+  color: #34414d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sync-account-panel {
+  margin-top: 20px;
+}
+
+.sync-account-details {
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+
+.sync-account-details > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.sync-account-details dt {
+  color: var(--muted);
+}
+
+.sync-account-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.sync-account-actions {
+  justify-content: space-between;
 }
 
 .dialog-header {
