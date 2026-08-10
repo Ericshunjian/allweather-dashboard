@@ -586,7 +586,9 @@
         pending: true
       };
     }
-    return { text: `${item.quoteStatus || "基金净值"} · ${navDate}`, pending: false };
+    const publishedRate = numeric(item.quoteDailyChangeRate, NaN);
+    const rateLabel = Number.isFinite(publishedRate) ? ` · 日涨跌 ${formatPercent(publishedRate, 2)}` : "";
+    return { text: `${item.quoteStatus || "基金净值"} · ${navDate}${rateLabel}`, pending: false };
   }
 
   function formatMoney(value, digits = 0) {
@@ -762,6 +764,13 @@
     }
 
     const navDailyPending = fundNavDailyPending(item);
+    const publishedFundDailyRate = holdingUsesFundNav(item) && !navDailyPending
+      ? numeric(item.quoteDailyChangeRate, NaN)
+      : NaN;
+    if (Number.isFinite(publishedFundDailyRate) && Math.abs(1 + publishedFundDailyRate) > 1e-8) {
+      const publishedPreviousNav = price / (1 + publishedFundDailyRate);
+      nativeDailyPnl = quantity * (price - publishedPreviousNav) * multiplier;
+    }
     const intradayProxyMove = navDailyPending ? currentIntradayProxyMove(item) : null;
     const dailyPnlEstimated = Boolean(intradayProxyMove);
     const dailyPnlPending = navDailyPending && !dailyPnlEstimated;
@@ -820,7 +829,9 @@
       code = code.replace(/\.OF$/i, "");
       if (/^\d{6}$/.test(code)) return `tencent:jj${code}`;
     }
-    if (item.assetType === "etf" && item.fundInputMode === "amount") {
+    if ((item.assetType === "etf" && item.fundInputMode === "amount")
+      || item.assetType === "gold"
+      || item.strategyBucket === "gold") {
       code = code.replace(/\.OF$/i, "");
       if (/^0\d{5}$/.test(code)) return `tencent:jj${code}`;
     }
@@ -880,7 +891,8 @@
       previousClose: Number.isFinite(previousClose) && previousClose > 0 ? previousClose : price,
       name: String(fields[1] || fields[2] || symbol),
       quoteTime: parseTencentTimestamp(timeValue),
-      quoteLabel: isFund ? "基金净值" : (isForex ? "汇率" : "实时行情")
+      quoteLabel: isFund ? "基金净值" : (isForex ? "汇率" : "实时行情"),
+      dailyChangeRate: isFund && Number.isFinite(fundChangeRate) ? fundChangeRate / 100 : null
     };
   }
 
@@ -1190,6 +1202,7 @@
     }
     item.price = quote.price;
     item.previousClose = quote.previousClose;
+    item.quoteDailyChangeRate = Number.isFinite(Number(quote.dailyChangeRate)) ? Number(quote.dailyChangeRate) : null;
     item.quoteName = quote.name;
     item.quoteTime = quote.quoteTime;
     item.quoteStatus = fundUsesEstimatedShares(item)
@@ -1735,11 +1748,11 @@
     const detailsByUnderlying = new Map();
     group.rows.forEach(({ item: holding, calc }) => {
       const identity = dailyContributionIdentity(holding, group.label);
-      const detailItem = detailsByUnderlying.get(identity.key) || { ...identity, value: 0, estimated: false, usQdii: false, pending: false };
+      const detailItem = detailsByUnderlying.get(identity.key) || { ...identity, value: 0, estimated: false, usQdii: false, pending: true };
       detailItem.value += calc.dailyPnlCny;
       detailItem.estimated ||= calc.dailyPnlEstimated;
       detailItem.usQdii ||= Boolean(calc.intradayProxyMove?.usQdii);
-      detailItem.pending ||= calc.dailyPnlPending;
+      detailItem.pending &&= calc.dailyPnlPending;
       detailsByUnderlying.set(identity.key, detailItem);
     });
     return [...detailsByUnderlying.values()]
@@ -1811,12 +1824,12 @@
     metrics.rows.forEach((row) => {
       const category = dailyContributionClassification(row.item);
       const groupKey = `daily:${category.key}`;
-      const current = grouped.get(groupKey) || { ...category, key: groupKey, value: 0, rows: [], estimated: false, pending: false };
+      const current = grouped.get(groupKey) || { ...category, key: groupKey, value: 0, rows: [], estimated: false, pending: true };
       current.rows.push(row);
       const { calc } = row;
       current.value += calc.dailyPnlCny;
       current.estimated ||= calc.dailyPnlEstimated;
-      current.pending ||= calc.dailyPnlPending;
+      current.pending &&= calc.dailyPnlPending;
       grouped.set(groupKey, current);
     });
     const contributions = [...grouped.values()].filter((item) => Math.abs(item.value) >= 0.005);
@@ -3415,10 +3428,12 @@
     document.addEventListener(eventName, resetLockTimer, { passive: true });
   });
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && sessionKey && cloudSession) {
-      synchronizeVault({ silent: true }).catch(() => {});
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible" || !sessionKey) return;
+    if (cloudSession) {
+      try { await synchronizeVault({ silent: true }); } catch (error) { /* Keep the local vault available offline. */ }
     }
+    if (!$("refresh-quotes").disabled) refreshQuotes({ silent: true });
   });
 
   setSyncStatus(syncConfigured() ? "local" : "error", syncConfigured() ? "未登录" : "未配置");
