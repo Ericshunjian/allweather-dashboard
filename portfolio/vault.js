@@ -44,6 +44,11 @@
     cash: "现金理财",
     other: "其他"
   });
+  const genericContributionLabels = new Set([
+    "美股", "港股", "国内权益", "权益", "股票", "ETF", "场外基金", "基金",
+    "黄金", "债券", "现金", "现金理财", "国内宽基", "红利低波", "国债期货",
+    "其他", "未纳入策略"
+  ].map((label) => label.toLocaleLowerCase("zh-CN")));
   const donutPalette = Object.freeze(["#24679c", "#0b7a61", "#b77b17", "#8b5c9c", "#b34f2e", "#78909c"]);
   const classColors = Object.freeze({ equity: "#24679c", gold: "#b77b17", bond: "#0b7a61", cash: "#78909c", other: "#8b5c9c" });
   const strategyColors = Object.freeze({ gold: "#b77b17", dividend: "#b34f2e", a500: "#24679c", bond_futures: "#0b7a61", cash: "#78909c" });
@@ -1394,11 +1399,10 @@
   function dailyContributionDetails(group) {
     const detailsByUnderlying = new Map();
     group.rows.forEach(({ item: holding, calc }) => {
-      const identity = holdingGroupIdentity(holding) || { key: `item:${holding.id}`, label: holding.name || "未命名资产" };
-      const detailKey = identity.key.replace(/^(?:underlying|known):/, "label:");
-      const detailItem = detailsByUnderlying.get(detailKey) || { key: detailKey, label: identity.label, value: 0 };
+      const identity = dailyContributionIdentity(holding, group.label);
+      const detailItem = detailsByUnderlying.get(identity.key) || { ...identity, value: 0 };
       detailItem.value += calc.dailyPnlCny;
-      detailsByUnderlying.set(detailKey, detailItem);
+      detailsByUnderlying.set(identity.key, detailItem);
     });
     return [...detailsByUnderlying.values()]
       .filter((item) => group.value > 0 ? item.value > 0 : item.value < 0)
@@ -1416,7 +1420,7 @@
     const total = $("daily-contribution-dialog-total");
     total.className = positive ? "positive" : "negative";
     total.textContent = `今日${directionLabel}贡献 ${formattedTotal}`;
-    $("daily-contribution-dialog-note").textContent = `前五大细分资产 · 按底层资产合并`;
+    $("daily-contribution-dialog-note").textContent = `前五大细分品种 · 同品种跨平台合并`;
     const list = $("daily-contribution-dialog-list");
     list.replaceChildren();
     details.forEach((detail, index) => {
@@ -1537,11 +1541,25 @@
       .replace(/[\s·_\-—/()（）&.]+/g, "");
   }
 
-  function holdingGroupIdentity(item) {
-    const explicit = String(item.underlyingName || "").trim();
-    if (explicit) return { key: `underlying:${normalizedGroupToken(explicit)}`, label: explicit };
+  function meaningfulContributionLabel(value, groupLabel = "") {
+    const label = String(value || "").trim();
+    if (!label) return "";
+    const token = normalizedGroupToken(label);
+    if (!token || token === normalizedGroupToken(groupLabel)) return "";
+    return genericContributionLabels.has(token) ? "" : label;
+  }
 
-    const descriptor = [item.name, item.code, item.quoteName].filter(Boolean).join(" ");
+  function canonicalInstrumentCode(item) {
+    let code = String(item.code || item.resolvedQuoteId || item.quoteId || "").trim().toUpperCase();
+    code = code
+      .replace(/^(?:TENCENT|SINA):/i, "")
+      .replace(/^(?:US|SH|SZ|HK|JJ)(?=[A-Z0-9])/i, "")
+      .replace(/\.(?:US|SH|SZ|HK|OF|CFE)$/i, "");
+    return code;
+  }
+
+  function knownUnderlyingIdentity(item) {
+    const descriptor = [item.name, item.code, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
     const knownUnderlyings = [
       { label: "标普500", pattern: /标普\s*500|S\s*&\s*P\s*500|S\s*P\s*500|(?:^|\s)(?:SPY|VOO|IVV|SPLG)(?:\.US)?(?:$|\s)/i },
       { label: "纳斯达克100", pattern: /纳斯达克\s*100|纳指\s*100|NASDAQ\s*100|(?:^|\s)QQQ(?:M)?(?:\.US)?(?:$|\s)/i },
@@ -1549,7 +1567,41 @@
       { label: "中证A500", pattern: /中证\s*A\s*500|(?:^|\s)A500(?:$|\s)/i }
     ];
     const known = knownUnderlyings.find((rule) => rule.pattern.test(descriptor));
-    if (known) return { key: `known:${normalizedGroupToken(known.label)}`, label: known.label };
+    return known ? { key: `known:${normalizedGroupToken(known.label)}`, label: known.label } : null;
+  }
+
+  function dailyContributionIdentity(item, groupLabel) {
+    const code = canonicalInstrumentCode(item);
+    const specificLabel = meaningfulContributionLabel(item.name, groupLabel)
+      || meaningfulContributionLabel(item.quoteName, groupLabel)
+      || meaningfulContributionLabel(item.underlyingName, groupLabel)
+      || code
+      || "未命名资产";
+
+    if (["stock", "futures", "option"].includes(item.assetType)) {
+      return {
+        key: `instrument:${item.assetType}:${normalizedGroupToken(code || specificLabel || item.id)}`,
+        label: specificLabel
+      };
+    }
+
+    const explicitUnderlying = meaningfulContributionLabel(item.underlyingName, groupLabel);
+    if (explicitUnderlying) {
+      return { key: `underlying:${normalizedGroupToken(explicitUnderlying)}`, label: explicitUnderlying };
+    }
+    const knownUnderlying = knownUnderlyingIdentity(item);
+    if (knownUnderlying && meaningfulContributionLabel(knownUnderlying.label, groupLabel)) return knownUnderlying;
+    return {
+      key: `instrument:${item.assetType || "other"}:${normalizedGroupToken(code || specificLabel || item.id)}`,
+      label: specificLabel
+    };
+  }
+
+  function holdingGroupIdentity(item) {
+    const explicit = String(item.underlyingName || "").trim();
+    if (explicit) return { key: `underlying:${normalizedGroupToken(explicit)}`, label: explicit };
+    const known = knownUnderlyingIdentity(item);
+    if (known) return known;
 
     const code = normalizedGroupToken(item.code);
     if (code) return { key: `code:${code}`, label: item.name || item.code };
