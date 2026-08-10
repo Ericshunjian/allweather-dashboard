@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260810-nav4">
+  <link rel="stylesheet" href="vault.css?v=20260810-intraday1">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -332,6 +332,14 @@
           <small id="fund-calibration-hint" class="field-hint">保存时按最新已公布净值估算份额</small>
           <small id="share-price-note" class="field-hint">场外基金不是盘中实时价；QDII净值通常会更晚</small>
         </label>
+        <label class="fund-reference-field check-row full-span">
+          <input id="holding-intraday-estimate-enabled" type="checkbox" checked>
+          <span>用对应场内 ETF / 指数估算盘中当日盈亏</span>
+        </label>
+        <label class="fund-reference-code-field full-span">盘中参考代码（可选）
+          <input id="holding-intraday-proxy-code" type="text" maxlength="40" placeholder="留空自动匹配；例如：000300、512890">
+          <small class="field-hint">只影响带“估”的今日盈亏，不改变基金净值和总资产；黄金与海外基金不使用此功能</small>
+        </label>
         <label class="quantity-field">数量 / 份额 / 手数
           <input id="holding-quantity" type="number" min="0" step="any" inputmode="decimal">
         </label>
@@ -479,6 +487,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="vault.js?v=20260810-nav4"></script>
+  <script src="vault.js?v=20260810-intraday1"></script>
 </body>
 </html>
