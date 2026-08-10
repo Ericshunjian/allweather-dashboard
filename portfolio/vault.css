@@ -396,6 +396,7 @@ input::placeholder {
 
 .analysis-panel,
 .holdings-section,
+.transactions-section,
 .history-section {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -490,6 +491,7 @@ input::placeholder {
 }
 
 .holdings-section,
+.transactions-section,
 .history-section {
   margin-top: 16px;
   padding: 20px 22px;
@@ -497,6 +499,12 @@ input::placeholder {
 
 .holdings-heading {
   align-items: flex-end;
+}
+
+.holdings-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .daily-contribution-panel {
@@ -1039,7 +1047,7 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
 }
 
 .holdings-table th:last-child {
-  width: 88px;
+  width: 126px;
 }
 
 .holding-name {
@@ -1162,6 +1170,123 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
 .table-action:hover {
   color: var(--ink);
   background: var(--soft);
+}
+
+.table-action.trade {
+  color: var(--blue);
+  border-color: rgba(36, 103, 156, 0.18);
+}
+
+.table-action:disabled {
+  color: #aeb7bf;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.transactions-heading {
+  align-items: flex-end;
+}
+
+.transaction-source-note,
+.transaction-limit-note {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.transaction-empty {
+  min-height: 120px;
+}
+
+.transactions-table {
+  width: 100%;
+  min-width: 880px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.transactions-table th,
+.transactions-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  vertical-align: middle;
+}
+
+.transactions-table th {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.transactions-table td {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transactions-table th:first-child,
+.transactions-table td:first-child,
+.transactions-table th:nth-child(2),
+.transactions-table td:nth-child(2) {
+  text-align: left;
+}
+
+.transactions-table th:first-child {
+  width: 116px;
+}
+
+.transactions-table th:nth-child(2) {
+  width: 18%;
+}
+
+.transactions-table th:last-child {
+  width: 64px;
+}
+
+.transaction-type {
+  display: inline-flex;
+  min-width: 42px;
+  justify-content: center;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.transaction-type.buy {
+  color: var(--red);
+  background: rgba(179, 58, 58, 0.08);
+}
+
+.transaction-type.sell {
+  color: var(--green);
+  background: rgba(11, 122, 97, 0.08);
+}
+
+.transaction-asset-name,
+.transaction-asset-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transaction-asset-name {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.transaction-asset-meta,
+.transaction-subvalue {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.transaction-limit-note {
+  margin: 10px 0 0;
+  text-align: right;
 }
 
 .history-heading {
@@ -1412,6 +1537,46 @@ dialog::backdrop {
   padding: 22px;
 }
 
+.trade-dialog {
+  width: min(560px, calc(100% - 28px));
+  max-height: calc(100vh - 36px);
+  padding: 0;
+}
+
+.trade-dialog form {
+  padding: 22px;
+}
+
+.trade-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+  padding: 20px 0 4px;
+}
+
+.trade-form-grid label {
+  display: grid;
+  gap: 7px;
+  color: #34414d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trade-preview {
+  min-height: 48px;
+  display: grid;
+  align-content: center;
+  margin-top: 14px;
+  padding: 10px 12px;
+  color: #36424e;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
 .sync-dialog {
   width: min(520px, calc(100% - 28px));
   padding: 22px;
@@ -1600,6 +1765,17 @@ dialog::backdrop {
   }
 }
 
+.holding-ledger-notice {
+  margin-top: 18px;
+  padding: 10px 12px;
+  color: #5d4817;
+  background: #fff9e9;
+  border: 1px solid #eadcb4;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding: 12px 12px 36px;
@@ -1666,6 +1842,7 @@ dialog::backdrop {
 
   .analysis-panel,
   .holdings-section,
+  .transactions-section,
   .history-section {
     padding: 17px 15px;
   }
@@ -1673,6 +1850,15 @@ dialog::backdrop {
   .holdings-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .holdings-heading-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .transactions-heading {
+    align-items: flex-start;
   }
 
   .history-heading {
@@ -1773,6 +1959,62 @@ dialog::backdrop {
   .holding-child-row td:first-child {
     padding-left: 14px;
     border-left: 2px solid #d9e4eb;
+  }
+
+  .transactions-table,
+  .transactions-table tbody,
+  .transactions-table tr,
+  .transactions-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .transactions-table {
+    min-width: 0;
+  }
+
+  .transactions-table thead {
+    display: none;
+  }
+
+  .transactions-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 11px 16px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .transactions-table td,
+  .transactions-table td:first-child,
+  .transactions-table td:nth-child(2) {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    text-align: left;
+  }
+
+  .transactions-table td:nth-child(2),
+  .transactions-table td:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .transactions-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  .transactions-table td:nth-child(2)::before,
+  .transactions-table td:last-child::before {
+    display: none;
+  }
+
+  .trade-form-grid {
+    grid-template-columns: 1fr;
   }
 
   .form-grid {

@@ -106,7 +106,10 @@
           <p class="eyebrow">POSITIONS</p>
           <h2>资产明细</h2>
         </div>
-        <span class="status-pill">人民币口径</span>
+        <div class="holdings-heading-actions">
+          <span class="status-pill">人民币口径</span>
+          <button id="record-trade" class="secondary-button compact-button" type="button">记录买卖</button>
+        </div>
       </div>
       <article class="daily-contribution-panel">
         <div class="daily-contribution-heading">
@@ -185,6 +188,39 @@
       </div>
     </section>
 
+    <section class="transactions-section" aria-labelledby="transactions-title">
+      <div class="section-heading transactions-heading">
+        <div>
+          <p class="eyebrow">TRADES</p>
+          <h2 id="transactions-title">买卖记录</h2>
+        </div>
+        <span id="transaction-count" class="status-pill">0笔记录</span>
+      </div>
+      <p class="transaction-source-note">买入优先扣除同平台、同币种现金，不足部分视为新增投入；卖出款自动计入同平台现金。</p>
+      <div id="transactions-empty" class="empty-state transaction-empty">
+        <strong>暂无买卖记录</strong>
+        <span>可在资产明细中点击“买卖”，或使用上方“记录买卖”。</span>
+      </div>
+      <div id="transactions-table-wrap" class="table-wrap" hidden>
+        <table class="transactions-table">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>资产</th>
+              <th>方向</th>
+              <th>成交数量</th>
+              <th>成交价</th>
+              <th>成交额</th>
+              <th>成交后持仓</th>
+              <th><span class="sr-only">操作</span></th>
+            </tr>
+          </thead>
+          <tbody id="transactions-body"></tbody>
+        </table>
+      </div>
+      <p id="transactions-limit-note" class="transaction-limit-note" hidden>仅显示最近 30 笔记录。</p>
+    </section>
+
     <section class="history-section">
       <div class="section-heading history-heading">
         <div>
@@ -197,9 +233,9 @@
         </div>
       </div>
       <div class="history-change-grid" aria-label="近期盈亏变化">
-        <article><span>日变动</span><strong id="history-day-change">--</strong><small id="history-day-rate">--</small></article>
-        <article><span>本周变动</span><strong id="history-week-change">--</strong><small id="history-week-rate">--</small></article>
-        <article><span>本月变动</span><strong id="history-month-change">--</strong><small id="history-month-rate">--</small></article>
+        <article><span>日盈亏</span><strong id="history-day-change">--</strong><small id="history-day-rate">--</small></article>
+        <article><span>本周盈亏</span><strong id="history-week-change">--</strong><small id="history-week-rate">--</small></article>
+        <article><span>本月盈亏</span><strong id="history-month-change">--</strong><small id="history-month-rate">--</small></article>
       </div>
       <div class="history-period-row" role="group" aria-label="历史周期">
         <button class="history-period-button active" type="button" data-period="day">日</button>
@@ -212,7 +248,7 @@
           <div id="history-chart" class="history-chart" aria-label="总资产历史"></div>
         </article>
         <article class="history-panel">
-          <div class="history-panel-heading"><span>期间变动</span><small>总资产差额</small></div>
+          <div class="history-panel-heading"><span>期间盈亏</span><small>已扣除交易本金</small></div>
           <div id="history-delta-chart" class="history-delta-chart" aria-label="期间资产变动历史"></div>
         </article>
       </div>
@@ -229,6 +265,7 @@
         <button id="close-dialog" class="icon-button" type="button" aria-label="关闭" title="关闭">关闭</button>
       </div>
       <input id="holding-id" type="hidden">
+      <div id="holding-ledger-notice" class="holding-ledger-notice" hidden>该资产已有买卖记录。平台、数量、成本、币种和估值类型由交易记录维护；名称、代码和分类仍可修改。</div>
       <div class="form-grid">
         <label>账户
           <input id="holding-account" type="text" maxlength="40" placeholder="例如：招商证券">
@@ -344,6 +381,52 @@
     </form>
   </dialog>
 
+  <dialog id="trade-dialog" class="trade-dialog">
+    <form id="trade-form" method="dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">BUY / SELL</p>
+          <h2>记录买卖</h2>
+        </div>
+        <button id="close-trade-dialog" class="icon-button" type="button" aria-label="关闭" title="关闭">关闭</button>
+      </div>
+      <div class="trade-form-grid">
+        <label class="full-span">资产
+          <select id="trade-holding"></select>
+          <small id="trade-position-hint" class="field-hint"></small>
+        </label>
+        <label>方向
+          <select id="trade-type">
+            <option value="buy">买入</option>
+            <option value="sell">卖出</option>
+          </select>
+        </label>
+        <label>录入方式
+          <select id="trade-input-mode">
+            <option value="quantity">按数量 / 份额</option>
+            <option value="amount">按成交金额</option>
+          </select>
+        </label>
+        <label class="trade-quantity-field">成交数量 / 份额
+          <input id="trade-quantity" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+        <label class="trade-amount-field" hidden>成交金额
+          <input id="trade-amount" type="number" min="0" step="0.01" inputmode="decimal">
+          <small class="field-hint">系统会根据成交价格推算份额，并标记为“估”</small>
+        </label>
+        <label>成交价格 / 净值
+          <input id="trade-price" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+      </div>
+      <div id="trade-preview" class="trade-preview" aria-live="polite">选择资产并填写成交信息</div>
+      <p id="trade-form-error" class="form-error" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button id="cancel-trade" class="secondary-button" type="button">取消</button>
+        <button id="save-trade" class="primary-button" type="submit" value="save">保存买卖</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="sync-dialog" class="sync-dialog">
     <div class="dialog-header">
       <div>
@@ -384,11 +467,11 @@
 
   <dialog id="confirm-dialog" class="confirm-dialog">
     <form method="dialog">
-      <h2>删除这项资产？</h2>
+      <h2 id="confirm-title">确认操作？</h2>
       <p id="confirm-message"></p>
       <div class="dialog-actions">
         <button class="secondary-button" value="cancel">取消</button>
-        <button class="danger-button" value="confirm">删除</button>
+        <button id="confirm-action" class="danger-button" value="confirm">确认</button>
       </div>
     </form>
   </dialog>

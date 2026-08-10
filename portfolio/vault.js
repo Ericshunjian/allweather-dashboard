@@ -53,7 +53,7 @@
   let strategyTarget = null;
   let activeFilter = "all";
   let holdingGroupingMode = "underlying";
-  let pendingDeleteId = null;
+  let pendingConfirmation = null;
   let lockTimer = null;
   let toastTimer = null;
   let cloudSession = null;
@@ -77,6 +77,8 @@
   const unlockError = $("unlock-error");
   const holdingDialog = $("holding-dialog");
   const holdingForm = $("holding-form");
+  const tradeDialog = $("trade-dialog");
+  const tradeForm = $("trade-form");
   const confirmDialog = $("confirm-dialog");
   const syncDialog = $("sync-dialog");
 
@@ -174,6 +176,9 @@
     if (!Array.isArray(candidate.snapshots)) {
       candidate.snapshots = [];
     }
+    if (!Array.isArray(candidate.transactions)) {
+      candidate.transactions = [];
+    }
   }
 
   function createEmptyVault() {
@@ -182,6 +187,7 @@
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       holdings: [],
+      transactions: [],
       snapshots: [],
       fxRates: { CNY: 1, USD: null, HKD: null, updatedAt: null }
     };
@@ -486,7 +492,10 @@
     summaryValuesVisible = false;
     expandedHoldingGroups.clear();
     expandedDailyContributionGroups.clear();
-    if (syncDialog?.open) syncDialog.close();
+    [holdingDialog, tradeDialog, syncDialog, confirmDialog].forEach((dialog) => {
+      if (dialog?.open) dialog.close();
+    });
+    pendingConfirmation = null;
     app.hidden = true;
     lockScreen.hidden = false;
     passwordInput.value = "";
@@ -571,6 +580,69 @@
     return "other";
   }
 
+  function transactionsForHolding(holdingId) {
+    return (vault?.transactions || [])
+      .filter((transaction) => transaction.holdingId === holdingId)
+      .sort((left, right) => `${left.date || ""}|${left.createdAt || ""}`.localeCompare(`${right.date || ""}|${right.createdAt || ""}`));
+  }
+
+  function holdingHasTransactions(holdingId) {
+    return Boolean(holdingId) && (vault?.transactions || []).some((transaction) => transaction.holdingId === holdingId);
+  }
+
+  function holdingHasTransactionReferences(holdingId) {
+    return Boolean(holdingId) && (vault?.transactions || []).some((transaction) => (
+      transaction.holdingId === holdingId || transaction.cashHoldingId === holdingId
+    ));
+  }
+
+  function isTradeableHolding(item) {
+    return Boolean(item)
+      && item.includeNav
+      && !["cash", "wealth", "deposit", "futures", "option"].includes(item.assetType)
+      && !["fixed", "interest"].includes(item.pricingMode);
+  }
+
+  function transactionCapitalFlowBetween(startExclusive, endInclusive) {
+    return (vault?.transactions || []).reduce((sum, transaction) => {
+      const date = String(transaction.date || "");
+      if (!date || date > endInclusive || (startExclusive && date <= startExclusive)) return sum;
+      return sum + numeric(transaction.capitalFlowCny);
+    }, 0);
+  }
+
+  function tradedHoldingDailyPnl(item, currentPrice, previousClose, multiplier) {
+    const todayTrades = transactionsForHolding(item.id).filter((transaction) => transaction.date === chinaDate());
+    if (!todayTrades.length) return numeric(item.quantity) * (currentPrice - previousClose) * multiplier;
+
+    const buys = todayTrades.filter((transaction) => transaction.type === "buy").reduce((sum, transaction) => sum + numeric(transaction.quantity), 0);
+    const sells = todayTrades.filter((transaction) => transaction.type === "sell").reduce((sum, transaction) => sum + numeric(transaction.quantity), 0);
+    const startingQuantity = numeric(item.quantity) - buys + sells;
+    if (startingQuantity < -1e-8) return numeric(item.quantity) * (currentPrice - previousClose) * multiplier;
+
+    const lots = startingQuantity > 1e-8 ? [{ quantity: startingQuantity, basis: previousClose }] : [];
+    let realized = 0;
+    for (const transaction of todayTrades) {
+      const quantity = numeric(transaction.quantity);
+      const tradePrice = numeric(transaction.price);
+      if (transaction.type === "buy") {
+        lots.push({ quantity, basis: tradePrice });
+        continue;
+      }
+      let remaining = quantity;
+      for (const lot of lots) {
+        if (!(remaining > 1e-8)) break;
+        const used = Math.min(lot.quantity, remaining);
+        realized += used * (tradePrice - lot.basis);
+        lot.quantity -= used;
+        remaining -= used;
+      }
+      if (remaining > 1e-8) return numeric(item.quantity) * (currentPrice - previousClose) * multiplier;
+    }
+    const unrealized = lots.reduce((sum, lot) => sum + Math.max(0, lot.quantity) * (currentPrice - lot.basis), 0);
+    return (realized + unrealized) * multiplier;
+  }
+
   function accruedFixedValue(item) {
     const principal = numeric(item.fixedValue);
     if (item.pricingMode !== "interest" || !item.valuationDate) return principal;
@@ -593,6 +665,7 @@
     let nativeExposure = 0;
     let nativePnl = 0;
     let nativeDailyPnl = 0;
+    let realizedPnlCny = 0;
 
     if (["fixed", "interest"].includes(item.pricingMode)) {
       nativeValue = accruedFixedValue(item);
@@ -616,7 +689,8 @@
       nativeValue = quantity * price * multiplier;
       nativeExposure = item.strategyBucket === "cash" ? 0 : nativeValue;
       nativePnl = quantity * (price - entry) * multiplier;
-      nativeDailyPnl = quantity * (price - previousClose) * multiplier;
+      nativeDailyPnl = tradedHoldingDailyPnl(item, price, previousClose, multiplier);
+      realizedPnlCny = numeric(item.realizedPnlCny);
     }
 
     const validFx = Number.isFinite(fx) && fx > 0;
@@ -627,7 +701,7 @@
       nativeDailyPnl,
       valueCny: item.includeNav && validFx ? nativeValue * fx : 0,
       exposureCny: validFx ? nativeExposure * fx : 0,
-      pnlCny: validFx ? nativePnl * fx : 0,
+      pnlCny: (validFx ? nativePnl * fx : 0) + realizedPnlCny,
       dailyPnlCny: validFx ? nativeDailyPnl * fx : 0,
       fx,
       validFx,
@@ -843,7 +917,9 @@
   }
 
   function fundNeedsCalibration(item) {
-    return fundUsesEstimatedShares(item) && (!(numeric(item.quantity) > 0) || !item.fundCalibratedAt);
+    return fundUsesEstimatedShares(item)
+      && !holdingHasTransactions(item.id)
+      && (!(numeric(item.quantity) > 0) || !item.fundCalibratedAt);
   }
 
   function applyQuoteToHolding(item, quote, quoteId) {
@@ -941,11 +1017,13 @@
       .filter((item) => item?.date && item.date < date && Number.isFinite(Number(item.totalAssets)))
       .sort((left, right) => left.date.localeCompare(right.date))
       .at(-1);
+    const capitalFlowCny = previousSnapshot ? transactionCapitalFlowBetween(previousSnapshot.date, date) : 0;
     const snapshot = {
       date,
       totalAssets: metrics.totalAssets,
-      dailyPnl: previousSnapshot ? metrics.totalAssets - numeric(previousSnapshot.totalAssets) : metrics.dailyPnl,
+      dailyPnl: previousSnapshot ? metrics.totalAssets - numeric(previousSnapshot.totalAssets) - capitalFlowCny : metrics.dailyPnl,
       marketDailyPnl: metrics.dailyPnl,
+      capitalFlowCny,
       grossExposure: metrics.grossExposure
     };
     const existingIndex = vault.snapshots.findIndex((item) => item.date === date);
@@ -1575,6 +1653,15 @@
 
     const actions = document.createElement("div");
     actions.className = "table-actions";
+    if (isTradeableHolding(item)) {
+      const trade = document.createElement("button");
+      trade.className = "table-action trade";
+      trade.type = "button";
+      trade.textContent = "买卖";
+      trade.dataset.action = "trade";
+      trade.dataset.id = item.id;
+      actions.appendChild(trade);
+    }
     const edit = document.createElement("button");
     edit.className = "table-action";
     edit.type = "button";
@@ -1587,6 +1674,8 @@
     remove.textContent = "删除";
     remove.dataset.action = "delete";
     remove.dataset.id = item.id;
+    remove.disabled = holdingHasTransactionReferences(item.id);
+    if (remove.disabled) remove.title = "已有买卖记录或关联现金，不能直接删除";
     actions.append(edit, remove);
     appendCell(row, "操作", actions);
     return row;
@@ -1681,6 +1770,85 @@
     });
   }
 
+  function transactionTimestamp(transaction) {
+    const createdAt = new Date(transaction.createdAt || `${transaction.date}T00:00:00+08:00`);
+    if (!Number.isFinite(createdAt.getTime())) return transaction.date || "--";
+    return createdAt.toLocaleString("zh-CN", {
+      timeZone: "Asia/Shanghai",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
+  }
+
+  function renderTransactions() {
+    const transactions = [...(vault?.transactions || [])]
+      .filter((transaction) => transaction?.id && transaction?.holdingId)
+      .sort((left, right) => `${right.date || ""}|${right.createdAt || ""}`.localeCompare(`${left.date || ""}|${left.createdAt || ""}`));
+    $("transaction-count").textContent = `${transactions.length}笔记录`;
+    $("transactions-empty").hidden = transactions.length > 0;
+    $("transactions-table-wrap").hidden = transactions.length === 0;
+    $("transactions-limit-note").hidden = transactions.length <= 30;
+    const body = $("transactions-body");
+    body.replaceChildren();
+    const latestByHolding = new Map();
+    transactions.forEach((transaction) => {
+      if (!latestByHolding.has(transaction.holdingId)) latestByHolding.set(transaction.holdingId, transaction.id);
+    });
+
+    transactions.slice(0, 30).forEach((transaction) => {
+      const holding = vault.holdings.find((item) => item.id === transaction.holdingId);
+      const row = document.createElement("tr");
+      appendCell(row, "时间", transactionTimestamp(transaction));
+
+      const identity = document.createElement("div");
+      const name = document.createElement("span");
+      name.className = "transaction-asset-name";
+      name.textContent = holding?.name || transaction.assetName || "已移除资产";
+      const meta = document.createElement("span");
+      meta.className = "transaction-asset-meta";
+      meta.textContent = [holding?.account || transaction.account, holding?.code || transaction.assetCode, transaction.currency].filter(Boolean).join(" · ");
+      identity.append(name, meta);
+      appendCell(row, "资产", identity);
+
+      const type = document.createElement("span");
+      type.className = `transaction-type ${transaction.type}`;
+      type.textContent = transaction.type === "sell" ? "卖出" : "买入";
+      appendCell(row, "方向", type);
+      appendCell(row, "成交数量", `${formatNumber(transaction.quantity, 4)} 份${transaction.quantityEstimated ? "（估）" : ""}`);
+      appendCell(row, "成交价", formatQuotePrice(transaction.price, transaction.currency));
+
+      const amount = document.createElement("div");
+      const nativeAmount = document.createElement("span");
+      nativeAmount.textContent = formatNative(transaction.amountNative, transaction.currency);
+      amount.appendChild(nativeAmount);
+      if (transaction.currency !== "CNY") {
+        const cnyAmount = document.createElement("span");
+        cnyAmount.className = "transaction-subvalue";
+        cnyAmount.textContent = `折合 ${formatMoney(transaction.amountCny)}`;
+        amount.appendChild(cnyAmount);
+      }
+      appendCell(row, "成交额", amount);
+      appendCell(row, "成交后持仓", `${formatNumber(transaction.afterQuantity, 4)} 份`);
+
+      const actions = document.createElement("div");
+      actions.className = "table-actions";
+      if (latestByHolding.get(transaction.holdingId) === transaction.id) {
+        const undo = document.createElement("button");
+        undo.className = "table-action";
+        undo.type = "button";
+        undo.textContent = "撤销";
+        undo.dataset.action = "undo-trade";
+        undo.dataset.id = transaction.id;
+        actions.appendChild(undo);
+      }
+      appendCell(row, "操作", actions);
+      body.appendChild(row);
+    });
+  }
+
   function sortedSnapshots() {
     return (vault?.snapshots || [])
       .filter((item) => item?.date && Number.isFinite(Number(item.totalAssets)))
@@ -1717,7 +1885,9 @@
         label: periodLabel(key, period),
         date: snapshot.date,
         totalAssets: numeric(snapshot.totalAssets),
-        change: previous ? numeric(snapshot.totalAssets) - numeric(previous.totalAssets) : null
+        change: previous
+          ? numeric(snapshot.totalAssets) - numeric(previous.totalAssets) - transactionCapitalFlowBetween(previous.date, snapshot.date)
+          : null
       };
     }).slice(-limits[period]);
   }
@@ -1729,8 +1899,10 @@
     if (!baseline && fallbackPrevious && snapshots.length > 1) baseline = snapshots.at(-2);
     if (!baseline) return null;
     const baseValue = numeric(baseline.totalAssets);
-    const change = numeric(latest.totalAssets) - baseValue;
-    return { change, rate: baseValue ? change / baseValue : null };
+    const capitalFlowCny = transactionCapitalFlowBetween(baseline.date, latest.date);
+    const change = numeric(latest.totalAssets) - baseValue - capitalFlowCny;
+    const investedBase = baseValue + Math.max(0, capitalFlowCny);
+    return { change, rate: investedBase ? change / investedBase : null };
   }
 
   function setHistoryChange(id, result) {
@@ -1857,7 +2029,312 @@
     renderDailyContribution(metrics);
     renderHoldingInsights(metrics);
     renderHoldings(metrics);
+    renderTransactions();
     renderHistory();
+  }
+
+  function tradeableHoldings() {
+    return (vault?.holdings || [])
+      .filter(isTradeableHolding)
+      .sort((left, right) => `${left.account || ""}|${left.name || ""}`.localeCompare(`${right.account || ""}|${right.name || ""}`, "zh-CN"));
+  }
+
+  function currentTradeHolding() {
+    return vault?.holdings.find((item) => item.id === $("trade-holding").value) || null;
+  }
+
+  function tradeCashHolding(item) {
+    const accountKey = normalizedGroupToken(item.account);
+    return vault.holdings.find((holding) => (
+      holding.assetType === "cash"
+      && holding.pricingMode === "fixed"
+      && holding.currency === item.currency
+      && normalizedGroupToken(holding.account) === accountKey
+    )) || null;
+  }
+
+  function createTradeCashHolding(item) {
+    const now = new Date().toISOString();
+    const account = String(item.account || "").trim();
+    return {
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      account,
+      name: account ? `${account}现金` : `${item.currency || "CNY"}现金`,
+      underlyingName: "",
+      code: "",
+      assetType: "cash",
+      strategyBucket: "cash",
+      currency: item.currency || "CNY",
+      pricingMode: "fixed",
+      quoteId: "",
+      quantity: 0,
+      price: 0,
+      previousClose: 0,
+      entryPrice: 0,
+      direction: 1,
+      multiplier: 1,
+      delta: 0,
+      underlyingPrice: 0,
+      fixedValue: 0,
+      fundInputMode: "",
+      fundSeedAmount: 0,
+      annualRate: 0,
+      valuationDate: chinaDate(),
+      notes: "买卖记录自动生成",
+      includeNav: true,
+      updatedAt: now
+    };
+  }
+
+  function populateTradeHoldingOptions(preselectedId = "") {
+    const select = $("trade-holding");
+    select.replaceChildren();
+    tradeableHoldings().forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = [item.account, item.name, `${formatNumber(item.quantity, 4)}份`].filter(Boolean).join(" · ");
+      select.appendChild(option);
+    });
+    if (preselectedId && [...select.options].some((option) => option.value === preselectedId)) select.value = preselectedId;
+  }
+
+  function updateTradeFormForHolding(options = {}) {
+    const item = currentTradeHolding();
+    if (!item) return;
+    $("trade-position-hint").textContent = `当前持仓 ${formatNumber(item.quantity, 4)} 份 · 最新价 ${formatQuotePrice(item.price, item.currency)} · ${item.currency}`;
+    $("trade-price").value = numeric(item.price) > 0 ? String(item.price) : "";
+    $("trade-input-mode").value = fundUsesEstimatedShares(item) ? "amount" : "quantity";
+    if (options.clearInputs !== false) {
+      $("trade-quantity").value = "";
+      $("trade-amount").value = "";
+    }
+    updateTradeInputVisibility();
+  }
+
+  function updateTradeInputVisibility() {
+    const amountMode = $("trade-input-mode").value === "amount";
+    document.querySelectorAll(".trade-quantity-field").forEach((node) => { node.hidden = amountMode; });
+    document.querySelectorAll(".trade-amount-field").forEach((node) => { node.hidden = !amountMode; });
+    updateTradePreview();
+  }
+
+  function tradeFormValues() {
+    const item = currentTradeHolding();
+    const mode = $("trade-input-mode").value;
+    const price = numeric($("trade-price").value);
+    const multiplier = Math.max(numeric(item?.multiplier, 1), 1e-12);
+    const enteredAmount = numeric($("trade-amount").value);
+    const enteredQuantity = numeric($("trade-quantity").value);
+    const quantity = mode === "amount" && price > 0 ? enteredAmount / price / multiplier : enteredQuantity;
+    const amountNative = quantity * price * multiplier;
+    return { item, mode, price, multiplier, enteredAmount, enteredQuantity, quantity, amountNative };
+  }
+
+  function updateTradePreview() {
+    const preview = $("trade-preview");
+    const { item, mode, price, quantity, amountNative } = tradeFormValues();
+    $("trade-form-error").textContent = "";
+    if (!item) {
+      preview.textContent = "请先添加可交易资产";
+      return;
+    }
+    const type = $("trade-type").value;
+    if (!(price > 0) || !(quantity > 0)) {
+      preview.textContent = `${type === "sell" ? "卖出" : "买入"} ${item.name} · 当前持仓 ${formatNumber(item.quantity, 4)} 份`;
+      return;
+    }
+    if (type === "sell" && quantity - numeric(item.quantity) > 1e-8) {
+      preview.textContent = `卖出数量超过当前持仓 ${formatNumber(item.quantity, 4)} 份，请减少数量`;
+      return;
+    }
+    const afterQuantity = numeric(item.quantity) + (type === "buy" ? quantity : -quantity);
+    const quantityLabel = mode === "amount" ? `估算份额 ${formatNumber(quantity, 4)}` : `${formatNumber(quantity, 4)} 份`;
+    const cashNote = type === "sell"
+      ? "卖出款将计入同平台现金"
+      : "优先扣同平台现金，不足部分视为新增投入";
+    preview.textContent = `${type === "sell" ? "卖出" : "买入"} ${quantityLabel} · 成交额 ${formatNative(amountNative, item.currency)} · 成交后 ${formatNumber(afterQuantity, 4)} 份 · ${cashNote}`;
+  }
+
+  function openTradeDialog(preselectedId = "") {
+    if (!tradeableHoldings().length) {
+      showToast("请先添加股票、基金、ETF、黄金或债券资产");
+      return;
+    }
+    tradeForm.reset();
+    $("trade-type").value = "buy";
+    $("trade-form-error").textContent = "";
+    populateTradeHoldingOptions(preselectedId);
+    updateTradeFormForHolding();
+    tradeDialog.showModal();
+    const amountMode = $("trade-input-mode").value === "amount";
+    $(amountMode ? "trade-amount" : "trade-quantity").focus();
+  }
+
+  async function saveTrade(event) {
+    event.preventDefault();
+    const values = tradeFormValues();
+    const { item, mode, price, quantity, amountNative } = values;
+    const type = $("trade-type").value;
+    const error = $("trade-form-error");
+    error.textContent = "";
+    if (!isTradeableHolding(item)) {
+      error.textContent = "请选择可交易资产";
+      return;
+    }
+    if (!(price > 0)) {
+      error.textContent = "请填写成交价格或净值";
+      return;
+    }
+    if (!(quantity > 0) || !(amountNative > 0)) {
+      error.textContent = mode === "amount" ? "请填写成交金额" : "请填写成交数量";
+      return;
+    }
+    const currentQuantity = numeric(item.quantity);
+    if (type === "sell" && quantity - currentQuantity > 1e-8) {
+      error.textContent = `卖出数量不能超过当前持仓 ${formatNumber(currentQuantity, 4)} 份`;
+      return;
+    }
+    const fxRate = item.currency === "CNY" ? 1 : numeric(vault.fxRates?.[item.currency], NaN);
+    if (!(fxRate > 0)) {
+      error.textContent = `暂时没有 ${item.currency}/CNY 汇率，请先刷新行情`;
+      return;
+    }
+
+    const saveButton = $("save-trade");
+    saveButton.disabled = true;
+    saveButton.textContent = "正在保存";
+    try {
+      const now = new Date().toISOString();
+      const beforeEntryPrice = numeric(item.entryPrice) > 0 ? numeric(item.entryPrice) : price;
+      const beforeRealizedPnlCny = numeric(item.realizedPnlCny);
+      const afterQuantity = type === "buy" ? currentQuantity + quantity : Math.max(0, currentQuantity - quantity);
+      let afterEntryPrice = beforeEntryPrice;
+      let afterRealizedPnlCny = beforeRealizedPnlCny;
+      if (type === "buy") {
+        afterEntryPrice = afterQuantity > 0
+          ? (currentQuantity * beforeEntryPrice + quantity * price) / afterQuantity
+          : price;
+      } else {
+        afterRealizedPnlCny += quantity * (price - beforeEntryPrice) * values.multiplier * fxRate;
+        if (!(afterQuantity > 1e-8)) afterEntryPrice = 0;
+      }
+
+      let cash = tradeCashHolding(item);
+      let cashHoldingCreated = false;
+      let cashDeltaNative = 0;
+      let capitalFlowCny = 0;
+      if (type === "buy") {
+        const cashUsed = cash ? Math.min(Math.max(0, numeric(cash.fixedValue)), amountNative) : 0;
+        if (cashUsed > 0) {
+          cash.fixedValue = numeric(cash.fixedValue) - cashUsed;
+          cash.updatedAt = now;
+          cashDeltaNative = -cashUsed;
+        }
+        capitalFlowCny = (amountNative - cashUsed) * fxRate;
+      } else {
+        if (!cash) {
+          cash = createTradeCashHolding(item);
+          vault.holdings.push(cash);
+          cashHoldingCreated = true;
+        }
+        cash.fixedValue = numeric(cash.fixedValue) + amountNative;
+        cash.updatedAt = now;
+        cashDeltaNative = amountNative;
+      }
+
+      item.quantity = afterQuantity;
+      item.entryPrice = afterEntryPrice;
+      item.realizedPnlCny = afterRealizedPnlCny;
+      if (!(numeric(item.price) > 0)) item.price = price;
+      if (!(numeric(item.previousClose) > 0)) item.previousClose = price;
+      item.updatedAt = now;
+
+      const transaction = {
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+        holdingId: item.id,
+        type,
+        date: chinaDate(),
+        createdAt: now,
+        assetName: item.name,
+        assetCode: item.code,
+        account: item.account,
+        currency: item.currency,
+        quantity,
+        quantityEstimated: mode === "amount",
+        price,
+        multiplier: values.multiplier,
+        amountNative,
+        fxRate,
+        amountCny: amountNative * fxRate,
+        capitalFlowCny,
+        beforeQuantity: currentQuantity,
+        afterQuantity,
+        beforeEntryPrice,
+        afterEntryPrice,
+        beforeRealizedPnlCny,
+        afterRealizedPnlCny,
+        cashHoldingId: cash?.id || "",
+        cashHoldingCreated,
+        cashDeltaNative
+      };
+      vault.transactions.push(transaction);
+      markLocalUserChange();
+      await persistVault();
+      await recordSnapshot();
+      tradeDialog.close();
+      renderAll();
+      showToast(`${type === "sell" ? "卖出" : "买入"}已记录：${formatNumber(quantity, 4)} 份`);
+    } catch (saveError) {
+      error.textContent = `保存失败：${saveError?.message || "请稍后重试"}`;
+    } finally {
+      saveButton.disabled = false;
+      saveButton.textContent = "保存买卖";
+    }
+  }
+
+  async function undoTrade(transactionId) {
+    const transaction = (vault.transactions || []).find((item) => item.id === transactionId);
+    if (!transaction) return;
+    const latest = transactionsForHolding(transaction.holdingId).at(-1);
+    if (latest?.id !== transaction.id) {
+      showToast("请先撤销该资产更晚的买卖记录");
+      return;
+    }
+    const holding = vault.holdings.find((item) => item.id === transaction.holdingId);
+    if (!holding || Math.abs(numeric(holding.quantity) - numeric(transaction.afterQuantity)) > 1e-7) {
+      showToast("当前持仓与交易记录不一致，无法安全撤销");
+      return;
+    }
+    const cash = transaction.cashHoldingId
+      ? vault.holdings.find((item) => item.id === transaction.cashHoldingId)
+      : null;
+    if (Math.abs(numeric(transaction.cashDeltaNative)) > 1e-8 && !cash) {
+      showToast("关联现金资产不存在，无法安全撤销");
+      return;
+    }
+    if (cash && numeric(cash.fixedValue) - numeric(transaction.cashDeltaNative) < -1e-8) {
+      showToast("现金余额不足，无法撤销这笔卖出");
+      return;
+    }
+
+    holding.quantity = numeric(transaction.beforeQuantity);
+    holding.entryPrice = numeric(transaction.beforeEntryPrice);
+    holding.realizedPnlCny = numeric(transaction.beforeRealizedPnlCny);
+    holding.updatedAt = new Date().toISOString();
+    if (cash) {
+      cash.fixedValue = Math.max(0, numeric(cash.fixedValue) - numeric(transaction.cashDeltaNative));
+      cash.updatedAt = new Date().toISOString();
+    }
+    vault.transactions = vault.transactions.filter((item) => item.id !== transaction.id);
+    if (cash && transaction.cashHoldingCreated && !(numeric(cash.fixedValue) > 1e-8)) {
+      const stillReferenced = vault.transactions.some((item) => item.cashHoldingId === cash.id);
+      if (!stillReferenced) vault.holdings = vault.holdings.filter((item) => item.id !== cash.id);
+    }
+    markLocalUserChange();
+    await persistVault();
+    await recordSnapshot();
+    renderAll();
+    showToast("买卖记录已撤销");
   }
 
   function setFieldVisibility() {
@@ -1931,8 +2408,26 @@
     setFieldVisibility();
   }
 
+  function setHoldingLedgerLock(locked) {
+    [
+      "holding-account",
+      "holding-type",
+      "holding-fund-input-mode",
+      "holding-currency",
+      "holding-pricing-mode",
+      "holding-fund-seed-amount",
+      "holding-quantity",
+      "holding-entry-price",
+      "holding-fixed-value",
+      "holding-multiplier",
+      "holding-include-nav"
+    ].forEach((id) => { $(id).disabled = locked; });
+    $("holding-ledger-notice").hidden = !locked;
+  }
+
   function resetHoldingForm() {
     holdingForm.reset();
+    setHoldingLedgerLock(false);
     $("holding-id").value = "";
     $("holding-type").value = "stock";
     $("holding-bucket").value = "other";
@@ -1976,6 +2471,7 @@
       $("holding-notes").value = item.notes || "";
       $("holding-include-nav").checked = Boolean(item.includeNav);
       setFieldVisibility();
+      setHoldingLedgerLock(holdingHasTransactionReferences(item.id));
     }
     holdingDialog.showModal();
     $("holding-name").focus();
@@ -2050,7 +2546,7 @@
     if (["fixed", "interest"].includes(item.pricingMode)) {
       if (!(item.fixedValue >= 0)) return "请填写当前金额";
     } else {
-      if (!(item.quantity > 0)) return "数量、份额或手数必须大于0";
+      if (!(item.quantity > 0) && !holdingHasTransactions(item.id)) return "数量、份额或手数必须大于0";
       if (item.pricingMode === "manual" && !(item.price > 0)) return "请填写当前价格";
       if (item.pricingMode === "auto" && !inferQuoteId(item)) return "无法自动识别行情，请检查资产类型和代码";
     }
@@ -2099,11 +2595,24 @@
   }
 
   async function deleteHolding(id) {
+    if (holdingHasTransactionReferences(id)) {
+      showToast("该资产已有买卖记录或关联现金，不能直接删除");
+      return;
+    }
     vault.holdings = vault.holdings.filter((item) => item.id !== id);
     markLocalUserChange();
     await persistVault();
     renderAll();
     showToast("资产已删除");
+  }
+
+  function requestConfirmation({ title, message, confirmLabel, action }) {
+    pendingConfirmation = action;
+    $("confirm-title").textContent = title;
+    $("confirm-message").textContent = message;
+    $("confirm-action").textContent = confirmLabel;
+    confirmDialog.returnValue = "";
+    confirmDialog.showModal();
   }
 
   async function exportBackup() {
@@ -2255,6 +2764,7 @@
   });
   $("refresh-quotes").addEventListener("click", () => refreshQuotes());
   $("add-holding").addEventListener("click", () => openHoldingDialog());
+  $("record-trade").addEventListener("click", () => openTradeDialog());
   $("open-sync").addEventListener("click", openSyncDialog);
   $("close-sync-dialog").addEventListener("click", () => syncDialog.close());
   $("sync-auth-form").addEventListener("submit", handleSyncSignIn);
@@ -2275,6 +2785,15 @@
   $("holding-fund-seed-amount").addEventListener("input", updateFundCalibrationHint);
   $("holding-pricing-mode").addEventListener("change", setFieldVisibility);
   holdingForm.addEventListener("submit", saveHolding);
+  $("close-trade-dialog").addEventListener("click", () => tradeDialog.close());
+  $("cancel-trade").addEventListener("click", () => tradeDialog.close());
+  $("trade-holding").addEventListener("change", () => updateTradeFormForHolding());
+  $("trade-type").addEventListener("change", updateTradePreview);
+  $("trade-input-mode").addEventListener("change", updateTradeInputVisibility);
+  ["trade-quantity", "trade-amount", "trade-price"].forEach((id) => {
+    $(id).addEventListener("input", updateTradePreview);
+  });
+  tradeForm.addEventListener("submit", saveTrade);
 
   $("holdings-body").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
@@ -2290,17 +2809,43 @@
     if (!button) return;
     const item = vault.holdings.find((holding) => holding.id === button.dataset.id);
     if (!item) return;
+    if (button.dataset.action === "trade") {
+      openTradeDialog(item.id);
+      return;
+    }
     if (button.dataset.action === "edit") openHoldingDialog(item);
     if (button.dataset.action === "delete") {
-      pendingDeleteId = item.id;
-      $("confirm-message").textContent = `将从台账中移除“${item.name}”。`;
-      confirmDialog.showModal();
+      requestConfirmation({
+        title: "删除这项资产？",
+        message: `将从台账中移除“${item.name}”。`,
+        confirmLabel: "删除",
+        action: () => deleteHolding(item.id)
+      });
     }
   });
 
-  confirmDialog.addEventListener("close", () => {
-    if (confirmDialog.returnValue === "confirm" && pendingDeleteId) deleteHolding(pendingDeleteId);
-    pendingDeleteId = null;
+  $("transactions-body").addEventListener("click", (event) => {
+    const button = event.target.closest('button[data-action="undo-trade"]');
+    if (!button) return;
+    const transaction = vault.transactions.find((item) => item.id === button.dataset.id);
+    if (!transaction) return;
+    requestConfirmation({
+      title: "撤销这笔买卖？",
+      message: `将撤销${transaction.type === "sell" ? "卖出" : "买入"} ${formatNumber(transaction.quantity, 4)} 份，并同步恢复持仓和现金。`,
+      confirmLabel: "撤销",
+      action: () => undoTrade(transaction.id)
+    });
+  });
+
+  confirmDialog.addEventListener("close", async () => {
+    const action = pendingConfirmation;
+    pendingConfirmation = null;
+    if (confirmDialog.returnValue !== "confirm" || !action) return;
+    try {
+      await action();
+    } catch (error) {
+      showToast(`操作失败：${error?.message || "请稍后重试"}`);
+    }
   });
 
   document.querySelectorAll(".filter-button").forEach((button) => {
