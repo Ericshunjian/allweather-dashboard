@@ -14,7 +14,7 @@
   const decoder = new TextDecoder();
   const commonUsQuotes = Object.freeze({ SPY: "usSPY", QQQ: "usQQQ" });
   const tencentQuoteEndpoint = "https://qt.gtimg.cn/q=";
-  const sinaFuturesEndpoint = "https://stock.finance.sina.com.cn/futures/api/jsonp.php";
+  const sinaFuturesFrame = "sina-quote-frame.html";
   const typeLabels = Object.freeze({
     stock: "股票",
     etf: "ETF",
@@ -686,20 +686,27 @@
 
   function fetchSinaFuturesQuote(symbol) {
     return new Promise((resolve, reject) => {
-      const callbackName = `__portfolioVaultQuote_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const script = document.createElement("script");
+      const requestId = crypto.randomUUID();
+      const iframe = document.createElement("iframe");
       const cleanup = () => {
-        delete window[callbackName];
-        script.remove();
+        window.removeEventListener("message", onMessage);
+        iframe.remove();
       };
       const timer = window.setTimeout(() => {
         cleanup();
         reject(new Error("期货行情超时"));
       }, 12000);
-      window[callbackName] = (rows) => {
+      const onMessage = (event) => {
+        if (event.source !== iframe.contentWindow || event.data?.requestId !== requestId) return;
         window.clearTimeout(timer);
         cleanup();
-        const observations = Array.isArray(rows) ? rows.filter((row) => row && row.d && row.c) : [];
+        if (!event.data.ok) {
+          reject(new Error("期货行情加载失败"));
+          return;
+        }
+        const observations = Array.isArray(event.data.rows)
+          ? event.data.rows.filter((row) => row && row.d && row.c)
+          : [];
         const latest = observations.at(-1);
         const previous = observations.at(-2);
         const price = numeric(latest?.c, NaN);
@@ -714,14 +721,13 @@
           quoteTime: parseTencentTimestamp(latest.d)
         });
       };
-      script.onerror = () => {
-        window.clearTimeout(timer);
-        cleanup();
-        reject(new Error("期货行情加载失败"));
-      };
-      script.src = `${sinaFuturesEndpoint}/${callbackName}/InnerFuturesNewService.getDailyKLine?symbol=${encodeURIComponent(symbol)}&_=${Date.now()}`;
-      script.referrerPolicy = "no-referrer";
-      document.head.appendChild(script);
+      window.addEventListener("message", onMessage);
+      iframe.hidden = true;
+      iframe.title = "期货行情沙箱";
+      iframe.setAttribute("sandbox", "allow-scripts");
+      iframe.referrerPolicy = "no-referrer";
+      iframe.src = `${sinaFuturesFrame}?symbol=${encodeURIComponent(symbol)}&request=${encodeURIComponent(requestId)}`;
+      document.body.appendChild(iframe);
     });
   }
 

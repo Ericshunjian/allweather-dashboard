@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-allweather-sina-quote' https://stock.finance.sina.com.cn; base-uri 'none'; form-action 'none'">
+  <title>期货行情沙箱</title>
+</head>
+<body>
+  <script nonce="allweather-sina-quote">
+    (() => {
+      "use strict";
+
+      const params = new URLSearchParams(window.location.search);
+      const symbol = String(params.get("symbol") || "").trim().toUpperCase();
+      const requestId = String(params.get("request") || "");
+      const callbackName = `__portfolioVaultSandboxQuote_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const send = (payload) => window.parent.postMessage({ requestId, ...payload }, "*");
+      const cleanup = () => {
+        delete window[callbackName];
+        script.remove();
+      };
+      const script = document.createElement("script");
+      const timer = window.setTimeout(() => {
+        cleanup();
+        send({ ok: false });
+      }, 10000);
+
+      if (!/^(?:T|TF|TS|TL)\d{3,4}$/.test(symbol) || !requestId) {
+        window.clearTimeout(timer);
+        cleanup();
+        send({ ok: false });
+        return;
+      }
+
+      window[callbackName] = (rows) => {
+        window.clearTimeout(timer);
+        cleanup();
+        send({ ok: true, rows: Array.isArray(rows) ? rows : [] });
+      };
+      script.onerror = () => {
+        window.clearTimeout(timer);
+        cleanup();
+        send({ ok: false });
+      };
+      script.referrerPolicy = "no-referrer";
+      script.src = `https://stock.finance.sina.com.cn/futures/api/jsonp.php/${callbackName}/InnerFuturesNewService.getDailyKLine?symbol=${encodeURIComponent(symbol)}&_=${Date.now()}`;
+      document.head.appendChild(script);
+    })();
+  </script>
+</body>
+</html>
