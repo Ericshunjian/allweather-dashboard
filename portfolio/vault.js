@@ -66,6 +66,7 @@
   let quoteRefreshTimer = null;
   let summaryValuesVisible = false;
   const expandedHoldingGroups = new Set();
+  const expandedDailyContributionGroups = new Set();
 
   const $ = (id) => document.getElementById(id);
   const lockScreen = $("lock-screen");
@@ -483,6 +484,8 @@
     sessionKey = null;
     vault = null;
     summaryValuesVisible = false;
+    expandedHoldingGroups.clear();
+    expandedDailyContributionGroups.clear();
     if (syncDialog?.open) syncDialog.close();
     app.hidden = true;
     lockScreen.hidden = false;
@@ -1163,19 +1166,23 @@
       return;
     }
 
-    let cursor = 0;
-    const stops = segments.map((item) => {
-      const start = cursor;
-      cursor += item.value / total * 100;
-      return `${item.color} ${start.toFixed(3)}% ${cursor.toFixed(3)}%`;
-    });
     const layout = document.createElement("div");
     layout.className = "donut-layout";
     const ring = document.createElement("div");
     ring.className = "donut-ring";
-    ring.style.background = `conic-gradient(${stops.join(", ")})`;
-    ring.setAttribute("role", "img");
+    ring.setAttribute("role", "group");
     ring.setAttribute("aria-label", segments.map((item) => `${item.label}${formatPercent(item.value / total)}`).join("，"));
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.classList.add("donut-svg");
+    svg.setAttribute("viewBox", "0 0 42 42");
+    const background = document.createElementNS(svgNamespace, "circle");
+    background.classList.add("donut-background");
+    background.setAttribute("cx", "21");
+    background.setAttribute("cy", "21");
+    background.setAttribute("r", "15.9155");
+    background.setAttribute("pathLength", "100");
+    svg.appendChild(background);
     const center = document.createElement("div");
     center.className = "donut-center";
     const centerValue = document.createElement("strong");
@@ -1183,12 +1190,87 @@
     const centerLabel = document.createElement("span");
     centerLabel.textContent = options.centerLabel;
     center.append(centerValue, centerLabel);
-    ring.appendChild(center);
+    ring.append(svg, center);
 
     const legend = document.createElement("ul");
     legend.className = "donut-legend";
+    const detail = document.createElement("div");
+    detail.className = "donut-detail-line";
+    detail.setAttribute("aria-live", "polite");
+    const segmentNodes = new Map();
+    const legendButtons = new Map();
+    let pinnedKey = "";
+
+    const renderDetail = (item = null) => {
+      const activeKey = item?.key || "";
+      detail.textContent = item
+        ? `${item.label} · ${formatMoney(item.value)} · ${formatPercent(item.value / total)}`
+        : `合计 ${formatMoney(total)} · 悬停或点击查看明细`;
+      centerValue.textContent = formatCompactMoney(item?.value ?? total);
+      centerLabel.textContent = item?.label || options.centerLabel;
+      segmentNodes.forEach((node, key) => {
+        node.classList.toggle("is-active", key === activeKey);
+        node.setAttribute("aria-pressed", String(key === pinnedKey));
+      });
+      legendButtons.forEach((button, key) => {
+        button.classList.toggle("is-active", key === activeKey);
+        button.setAttribute("aria-pressed", String(key === pinnedKey));
+      });
+    };
+    const restoreDetail = () => renderDetail(segments.find((item) => item.key === pinnedKey) || null);
+    const toggleDetail = (item) => {
+      pinnedKey = pinnedKey === item.key ? "" : item.key;
+      restoreDetail();
+    };
+    const pointAt = (percentage) => {
+      const radians = (percentage * 3.6 - 90) * Math.PI / 180;
+      return {
+        x: 21 + 20 * Math.cos(radians),
+        y: 21 + 20 * Math.sin(radians)
+      };
+    };
+    const wedgePath = (startPercentage, endPercentage) => {
+      if (endPercentage - startPercentage >= 99.999) {
+        return "M 21 21 L 21 1 A 20 20 0 1 1 21 41 A 20 20 0 1 1 21 1 Z";
+      }
+      const start = pointAt(startPercentage);
+      const end = pointAt(endPercentage);
+      const largeArc = endPercentage - startPercentage > 50 ? 1 : 0;
+      return `M 21 21 L ${start.x} ${start.y} A 20 20 0 ${largeArc} 1 ${end.x} ${end.y} Z`;
+    };
+
+    let cursor = 0;
     segments.forEach((item) => {
+      const share = item.value / total * 100;
+      const segment = document.createElementNS(svgNamespace, "path");
+      segment.classList.add("donut-segment");
+      segment.setAttribute("d", wedgePath(cursor, cursor + share));
+      segment.setAttribute("fill", item.color);
+      segment.setAttribute("role", "button");
+      segment.setAttribute("tabindex", "0");
+      segment.setAttribute("aria-label", `${item.label}，${formatMoney(item.value)}，${formatPercent(item.value / total)}`);
+      const segmentTitle = document.createElementNS(svgNamespace, "title");
+      segmentTitle.textContent = `${item.label} · ${formatMoney(item.value)} · ${formatPercent(item.value / total)}`;
+      segment.appendChild(segmentTitle);
+      segment.addEventListener("pointerenter", () => renderDetail(item));
+      segment.addEventListener("pointerleave", restoreDetail);
+      segment.addEventListener("focus", () => renderDetail(item));
+      segment.addEventListener("blur", restoreDetail);
+      segment.addEventListener("click", () => toggleDetail(item));
+      segment.addEventListener("keydown", (event) => {
+        if (!["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        toggleDetail(item);
+      });
+      svg.appendChild(segment);
+      segmentNodes.set(item.key, segment);
+      cursor += share;
+
       const legendItem = document.createElement("li");
+      const legendButton = document.createElement("button");
+      legendButton.className = "donut-legend-button";
+      legendButton.type = "button";
+      legendButton.setAttribute("aria-label", `${item.label}，${formatMoney(item.value)}，${formatPercent(item.value / total)}`);
       const swatch = document.createElement("span");
       swatch.className = "donut-swatch";
       swatch.style.background = item.color;
@@ -1199,12 +1281,19 @@
       const value = document.createElement("span");
       value.className = "donut-legend-value";
       value.textContent = formatPercent(item.value / total);
-      value.title = formatMoney(item.value);
-      legendItem.append(swatch, label, value);
+      legendButton.append(swatch, label, value);
+      legendButton.addEventListener("pointerenter", () => renderDetail(item));
+      legendButton.addEventListener("pointerleave", restoreDetail);
+      legendButton.addEventListener("focus", () => renderDetail(item));
+      legendButton.addEventListener("blur", restoreDetail);
+      legendButton.addEventListener("click", () => toggleDetail(item));
+      legendButtons.set(item.key, legendButton);
+      legendItem.appendChild(legendButton);
       legend.appendChild(legendItem);
     });
-    layout.append(ring, legend);
+    layout.append(ring, legend, detail);
     container.appendChild(layout);
+    renderDetail();
   }
 
   function renderHoldingInsights(metrics) {
@@ -1228,10 +1317,13 @@
     const chart = $("daily-contribution-chart");
     chart.replaceChildren();
     const grouped = new Map();
-    metrics.rows.forEach(({ item, calc }) => {
-      const identity = holdingGroupIdentity(item) || { key: `item:${item.id}`, label: item.name || "未命名资产" };
-      const groupKey = identity.key.replace(/^(?:underlying|known):/, "label:");
-      const current = grouped.get(groupKey) || { ...identity, key: groupKey, value: 0 };
+    metrics.rows.forEach((row) => {
+      const strategyCategory = strategyClassification(row.item);
+      const category = strategyCategory || marketClassification(row.item);
+      const groupKey = `daily:${category.key}`;
+      const current = grouped.get(groupKey) || { ...category, key: groupKey, value: 0, rows: [] };
+      current.rows.push(row);
+      const { calc } = row;
       current.value += calc.dailyPnlCny;
       grouped.set(groupKey, current);
     });
@@ -1267,12 +1359,22 @@
 
     const maxAbsolute = Math.max(...selected.map((item) => Math.abs(item.value)), 1e-12);
     selected.forEach((item) => {
-      const row = document.createElement("div");
+      const expanded = expandedDailyContributionGroups.has(item.key);
+      const row = document.createElement("button");
       row.className = "daily-contribution-row";
+      row.type = "button";
+      row.setAttribute("aria-expanded", String(expanded));
+      row.title = `点击查看${item.label}的细分资产盈亏`;
+      const labelWrap = document.createElement("span");
+      labelWrap.className = "daily-contribution-label-wrap";
+      const chevron = document.createElement("span");
+      chevron.className = "daily-contribution-chevron";
+      chevron.textContent = "›";
       const label = document.createElement("span");
       label.className = "daily-contribution-label";
       label.textContent = item.label;
       label.title = item.label;
+      labelWrap.append(chevron, label);
       const track = document.createElement("div");
       track.className = "daily-contribution-track";
       const bar = document.createElement("span");
@@ -1284,8 +1386,59 @@
       value.className = `daily-contribution-value ${direction}`;
       value.textContent = item.value > 0 ? `+${formatMoney(item.value)}` : formatMoney(item.value);
       row.setAttribute("aria-label", `${item.label} ${item.value > 0 ? "盈利贡献" : "亏损贡献"}${value.textContent}`);
-      row.append(label, track, value);
+      row.append(labelWrap, track, value);
+      row.classList.toggle("is-expanded", expanded);
+      row.addEventListener("click", () => {
+        if (expandedDailyContributionGroups.has(item.key)) expandedDailyContributionGroups.delete(item.key);
+        else expandedDailyContributionGroups.add(item.key);
+        renderDailyContribution(metrics);
+      });
       chart.appendChild(row);
+
+      if (expanded) {
+        const detailsByUnderlying = new Map();
+        item.rows.forEach(({ item: holding, calc }) => {
+          const identity = holdingGroupIdentity(holding) || { key: `item:${holding.id}`, label: holding.name || "未命名资产" };
+          const detailKey = identity.key.replace(/^(?:underlying|known):/, "label:");
+          const detailItem = detailsByUnderlying.get(detailKey) || { key: detailKey, label: identity.label, value: 0 };
+          detailItem.value += calc.dailyPnlCny;
+          detailsByUnderlying.set(detailKey, detailItem);
+        });
+        const sameDirectionDetails = [...detailsByUnderlying.values()]
+          .filter((detailItem) => item.value > 0 ? detailItem.value > 0 : detailItem.value < 0)
+          .sort((left, right) => item.value > 0 ? right.value - left.value : left.value - right.value)
+          .slice(0, 5);
+        const details = document.createElement("div");
+        details.className = "daily-contribution-details";
+        details.setAttribute("role", "region");
+        details.setAttribute("aria-label", `${item.label}${item.value > 0 ? "盈利" : "亏损"}贡献明细`);
+        const detailsHeading = document.createElement("div");
+        detailsHeading.className = "daily-contribution-details-heading";
+        const detailsTitle = document.createElement("strong");
+        detailsTitle.textContent = `${item.value > 0 ? "盈利" : "亏损"}贡献前五`;
+        const detailsHint = document.createElement("span");
+        detailsHint.textContent = "按底层资产合并";
+        detailsHeading.append(detailsTitle, detailsHint);
+        const list = document.createElement("ol");
+        list.className = "daily-contribution-details-list";
+        sameDirectionDetails.forEach((detailItem, index) => {
+          const listItem = document.createElement("li");
+          const rank = document.createElement("span");
+          rank.className = "daily-contribution-detail-rank";
+          rank.textContent = String(index + 1);
+          const detailLabel = document.createElement("span");
+          detailLabel.textContent = detailItem.label;
+          detailLabel.title = detailItem.label;
+          const detailValue = document.createElement("strong");
+          const detailDirection = detailItem.value > 0 ? "positive" : "negative";
+          detailValue.className = detailDirection;
+          detailValue.textContent = detailItem.value > 0 ? `+${formatMoney(detailItem.value)}` : formatMoney(detailItem.value);
+          listItem.append(rank, detailLabel, detailValue);
+          list.appendChild(listItem);
+        });
+        details.append(detailsHeading, list);
+        chart.appendChild(details);
+      }
     });
   }
 

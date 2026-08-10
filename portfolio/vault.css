@@ -551,6 +551,21 @@ input::placeholder {
   gap: 12px;
 }
 
+button.daily-contribution-row {
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+button.daily-contribution-row:hover .daily-contribution-track,
+button.daily-contribution-row:focus-visible .daily-contribution-track {
+  box-shadow: inset 0 0 0 1px rgba(36, 103, 156, 0.2);
+}
+
 .daily-contribution-axis-track {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -574,6 +589,25 @@ input::placeholder {
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.daily-contribution-label-wrap {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+}
+
+.daily-contribution-chevron {
+  color: var(--blue);
+  font-size: 17px;
+  line-height: 1;
+  transition: transform 160ms ease;
+}
+
+.daily-contribution-row.is-expanded .daily-contribution-chevron {
+  transform: rotate(90deg);
 }
 
 .daily-contribution-track {
@@ -624,6 +658,75 @@ input::placeholder {
   color: var(--muted);
   font-size: 11px;
   text-align: center;
+}
+
+.daily-contribution-details {
+  margin: -2px 0 4px;
+  padding: 10px 12px 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.daily-contribution-details-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+}
+
+.daily-contribution-details-heading strong {
+  font-size: 11px;
+}
+
+.daily-contribution-details-heading span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.daily-contribution-details-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 3px 0 0;
+  list-style: none;
+}
+
+.daily-contribution-details-list li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 10px;
+}
+
+.daily-contribution-details-list li > span:nth-child(2) {
+  overflow: hidden;
+  color: #36424e;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-contribution-details-list li strong {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.daily-contribution-detail-rank {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--soft);
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 800;
 }
 
 .holding-insights-grid {
@@ -690,6 +793,37 @@ input::placeholder {
   border-radius: 50%;
 }
 
+.donut-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.donut-background {
+  fill: none;
+}
+
+.donut-background {
+  stroke: #e9edef;
+  stroke-width: 8.5;
+}
+
+.donut-segment {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: filter 140ms ease, transform 140ms ease;
+}
+
+.donut-segment:hover,
+.donut-segment:focus-visible,
+.donut-segment.is-active {
+  filter: brightness(1.08) saturate(1.08);
+  transform: scale(1.025);
+  outline: none;
+}
+
 .donut-center {
   position: absolute;
   inset: 17px;
@@ -701,6 +835,7 @@ input::placeholder {
   background: #fff;
   border-radius: 50%;
   box-shadow: 0 0 0 1px rgba(23, 33, 43, 0.04);
+  pointer-events: none;
 }
 
 .donut-center strong,
@@ -730,14 +865,27 @@ input::placeholder {
   list-style: none;
 }
 
-.donut-legend li {
+.donut-legend-button {
+  width: 100%;
   min-width: 0;
+  min-height: 24px;
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
+  padding: 2px 3px;
   color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
   font-size: 10px;
+  text-align: left;
+}
+
+.donut-legend-button:hover,
+.donut-legend-button:focus-visible,
+.donut-legend-button.is-active {
+  background: var(--soft);
 }
 
 .donut-swatch {
@@ -757,6 +905,23 @@ input::placeholder {
 .donut-legend-value {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.donut-detail-line {
+  grid-column: 1 / -1;
+  min-height: 27px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  color: #36424e;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .donut-empty {
