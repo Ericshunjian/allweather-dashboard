@@ -860,7 +860,7 @@
       attempted += 1;
       if (!quoteId) {
         item.quoteStatus = "代码不支持";
-        item.quoteError = "请检查资产类型和代码，或填写行情标识";
+        item.quoteError = "请检查资产类型和代码";
         item.resolvedQuoteId = "";
         return;
       }
@@ -1603,7 +1603,6 @@
     document.querySelectorAll(".multiplier-field").forEach((node) => { node.hidden = !derivative; });
     document.querySelectorAll(".option-field").forEach((node) => { node.hidden = type !== "option"; });
     $("pricing-mode-field").hidden = amountFund;
-    $("quote-id-field").hidden = pricing !== "auto";
     updateFundCalibrationHint();
   }
 
@@ -1686,7 +1685,6 @@
       $("holding-fund-input-mode").value = item.fundInputMode || "shares";
       $("holding-currency").value = item.currency || "CNY";
       $("holding-pricing-mode").value = item.pricingMode || "manual";
-      $("holding-quote-id").value = item.quoteId || "";
       $("holding-quantity").value = item.quantity ?? "";
       $("holding-price").value = item.price ?? "";
       $("holding-entry-price").value = item.entryPrice ?? "";
@@ -1710,6 +1708,10 @@
     const id = $("holding-id").value;
     const existing = vault.holdings.find((item) => item.id === id) || {};
     const assetType = $("holding-type").value;
+    const code = $("holding-code").value.trim().toUpperCase();
+    const keepExistingQuoteId = Boolean(existing.id)
+      && existing.assetType === assetType
+      && String(existing.code || "").trim().toUpperCase() === code;
     const fundInputMode = assetType === "fund" ? $("holding-fund-input-mode").value : "";
     const fundSeedAmount = numeric($("holding-fund-seed-amount").value);
     const amountFund = assetType === "fund" && fundInputMode === "amount";
@@ -1724,12 +1726,12 @@
       account: $("holding-account").value.trim(),
       name: $("holding-name").value.trim(),
       underlyingName: $("holding-underlying-name").value.trim(),
-      code: $("holding-code").value.trim().toUpperCase(),
+      code,
       assetType,
       strategyBucket: $("holding-bucket").value,
       currency: $("holding-currency").value,
       pricingMode: $("holding-pricing-mode").value,
-      quoteId: $("holding-quote-id").value.trim(),
+      quoteId: keepExistingQuoteId ? (existing.quoteId || "") : "",
       quantity: amountFund ? numeric(existing.quantity) : numeric($("holding-quantity").value),
       price: amountFund ? numeric(existing.price) : numeric($("holding-price").value),
       entryPrice: amountFund ? numeric(existing.entryPrice) : numeric($("holding-entry-price").value),
@@ -1773,7 +1775,7 @@
     } else {
       if (!(item.quantity > 0)) return "数量、份额或手数必须大于0";
       if (item.pricingMode === "manual" && !(item.price > 0)) return "请填写当前价格";
-      if (item.pricingMode === "auto" && !inferQuoteId(item)) return "无法自动识别行情，请填写行情标识";
+      if (item.pricingMode === "auto" && !inferQuoteId(item)) return "无法自动识别行情，请检查资产类型和代码";
     }
     if ((item.assetType === "futures" || item.assetType === "option") && !(item.multiplier > 0)) return "合约乘数必须大于0";
     if (item.assetType === "option" && Math.abs(item.delta) > 1) return "期权Delta必须在-1到1之间";
