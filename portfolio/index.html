@@ -223,7 +223,7 @@
           <input id="holding-account" type="text" maxlength="40" placeholder="例如：招商证券">
         </label>
         <label>资产名称
-          <input id="holding-name" type="text" maxlength="60" required placeholder="例如：腾讯控股">
+          <input id="holding-name" type="text" maxlength="60" placeholder="场外基金可留空自动识别">
         </label>
         <label>底层资产（合并显示）
           <input id="holding-underlying-name" type="text" maxlength="40" placeholder="例如：标普500">
@@ -247,6 +247,13 @@
             <option value="other">其他</option>
           </select>
         </label>
+        <label class="fund-mode-field">基金录入方式
+          <select id="holding-fund-input-mode">
+            <option value="amount">只有当前金额（自动估算份额）</option>
+            <option value="shares">我知道基金份额</option>
+          </select>
+          <small class="field-hint">金额模式只需基金代码和当前金额</small>
+        </label>
         <label>策略分类
           <select id="holding-bucket">
             <option value="a500">国内宽基</option>
@@ -264,7 +271,7 @@
             <option value="HKD">港币 HKD</option>
           </select>
         </label>
-        <label>估值方式
+        <label id="pricing-mode-field">估值方式
           <select id="holding-pricing-mode">
             <option value="auto">自动行情</option>
             <option value="manual">手动价格</option>
@@ -274,6 +281,11 @@
         </label>
         <label id="quote-id-field">行情标识
           <input id="holding-quote-id" type="text" maxlength="50" placeholder="通常留空；可填 sh518880 / jj110011 / sina:T0">
+        </label>
+        <label class="fund-amount-field">平台显示的当前金额
+          <input id="holding-fund-seed-amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例如：12580.36">
+          <small id="fund-calibration-hint" class="field-hint">保存时按最新已公布净值估算份额</small>
+          <small class="field-hint">场外基金不是盘中实时价；QDII净值通常会更晚</small>
         </label>
         <label class="quantity-field">数量 / 份额 / 手数
           <input id="holding-quantity" type="number" min="0" step="any" inputmode="decimal">
@@ -319,7 +331,7 @@
       <p id="holding-form-error" class="form-error" role="alert"></p>
       <div class="dialog-actions">
         <button id="cancel-holding" class="secondary-button" type="button">取消</button>
-        <button class="primary-button" type="submit" value="save">保存资产</button>
+        <button id="save-holding" class="primary-button" type="submit" value="save">保存资产</button>
       </div>
     </form>
   </dialog>

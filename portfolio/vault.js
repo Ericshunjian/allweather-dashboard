@@ -660,8 +660,6 @@
     if (item.assetType === "option") return "";
     if (item.assetType === "fund") {
       code = code.replace(/\.OF$/i, "");
-      if (/^5\d{5}$/.test(code)) return `tencent:sh${code}`;
-      if (/^1[568]\d{4}$/.test(code)) return `tencent:sz${code}`;
       if (/^\d{6}$/.test(code)) return `tencent:jj${code}`;
     }
     const mainlandMatch = code.match(/^(\d{6})\.(SH|SZ)$/i);
@@ -700,7 +698,7 @@
     const url = `${tencentQuoteEndpoint}${encodeURIComponent(symbol)}&_=${Date.now()}`;
     const response = await fetch(url, { cache: "no-store", referrerPolicy: "no-referrer" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.text();
+    const payload = new TextDecoder("gb18030").decode(await response.arrayBuffer());
     const firstQuote = payload.indexOf('"');
     const lastQuote = payload.lastIndexOf('"');
     if (firstQuote < 0 || lastQuote <= firstQuote) throw new Error("无有效行情");
@@ -806,6 +804,34 @@
     }
   }
 
+  function fundUsesEstimatedShares(item) {
+    return item.assetType === "fund" && item.fundInputMode === "amount";
+  }
+
+  function fundNeedsCalibration(item) {
+    return fundUsesEstimatedShares(item) && (!(numeric(item.quantity) > 0) || !item.fundCalibratedAt);
+  }
+
+  function applyQuoteToHolding(item, quote, quoteId) {
+    if (fundNeedsCalibration(item)) {
+      const seedAmount = numeric(item.fundSeedAmount);
+      if (!(seedAmount > 0) || !(quote.price > 0)) throw new Error("缺少可用于估算份额的金额或净值");
+      item.quantity = seedAmount / quote.price;
+      item.entryPrice = quote.price;
+      item.fundCalibrationNav = quote.price;
+      item.fundCalibratedAt = quote.quoteTime;
+    }
+    item.price = quote.price;
+    item.previousClose = quote.previousClose;
+    item.quoteName = quote.name;
+    item.quoteTime = quote.quoteTime;
+    item.quoteStatus = fundUsesEstimatedShares(item)
+      ? `${quote.quoteLabel || "基金净值"} · 估算份额`
+      : (quote.quoteLabel || "已更新");
+    item.quoteError = "";
+    item.resolvedQuoteId = quoteId;
+  }
+
   async function refreshQuotes(options = {}) {
     if (!vault) return;
     const button = $("refresh-quotes");
@@ -840,13 +866,7 @@
       }
       try {
         const quote = await fetchQuote(quoteId);
-        item.price = quote.price;
-        item.previousClose = quote.previousClose;
-        item.quoteName = quote.name;
-        item.quoteTime = quote.quoteTime;
-        item.quoteStatus = quote.quoteLabel || "已更新";
-        item.quoteError = "";
-        item.resolvedQuoteId = quoteId;
+        applyQuoteToHolding(item, quote, quoteId);
         success += 1;
       } catch (error) {
         item.quoteStatus = "更新失败";
@@ -1244,7 +1264,7 @@
     name.textContent = item.name;
     const meta = document.createElement("span");
     meta.className = "holding-meta";
-    meta.textContent = [item.account, item.code, typeLabels[item.assetType]].filter(Boolean).join(" · ");
+    meta.textContent = [item.account, item.code, typeLabels[item.assetType], fundUsesEstimatedShares(item) ? "份额估算" : ""].filter(Boolean).join(" · ");
     identity.append(name, meta);
     return identity;
   }
@@ -1256,24 +1276,30 @@
 
     let positionText;
     if (["fixed", "interest"].includes(item.pricingMode)) positionText = formatNative(accruedFixedValue(item), item.currency);
-    else positionText = `${formatNumber(item.quantity)} ${calc.derivative ? "手" : "份"}`;
+    else positionText = `${formatNumber(item.quantity)} ${calc.derivative ? "手" : "份"}${fundUsesEstimatedShares(item) ? "（估）" : ""}`;
     appendCell(row, "持仓", positionText);
     const latestPrice = ["fixed", "interest"].includes(item.pricingMode)
       ? "--"
       : formatQuotePrice(item.price, item.currency);
     appendCell(row, "最新价", latestPrice);
-    appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
+    appendCell(row, "当前价值", item.includeNav ? `${fundUsesEstimatedShares(item) ? "≈" : ""}${formatMoney(calc.valueCny)}` : "不计入");
     appendCell(row, "风险敞口", formatMoney(calc.exposureCny));
     appendCell(row, "资产权重", metrics.totalAssets > 0 && item.includeNav ? formatPercent(calc.valueCny / metrics.totalAssets) : "--");
-    const pnlCell = appendCell(row, "累计盈亏", formatMoney(calc.pnlCny));
+    const pnlCell = appendCell(row, "累计盈亏", `${fundUsesEstimatedShares(item) ? "≈" : ""}${formatMoney(calc.pnlCny)}`);
     setSignedClass(pnlCell, calc.pnlCny);
+    if (fundUsesEstimatedShares(item)) {
+      pnlCell.title = `自 ${String(item.fundCalibratedAt || "首次录入").slice(0, 10)} 金额校准后估算`;
+    }
 
     const quote = document.createElement("span");
     const quoteSucceeded = item.quoteTime && item.quoteStatus !== "更新失败";
     quote.className = `quote-status${quoteSucceeded ? " ok" : ""}`;
     quote.textContent = item.pricingMode === "auto" ? (item.quoteStatus || "待刷新") : "本地估值";
     if (item.pricingMode === "auto") {
-      const details = [item.resolvedQuoteId, item.quoteError].filter(Boolean).join(" · ");
+      const calibration = fundUsesEstimatedShares(item) && item.fundCalibratedAt
+        ? `校准 ${String(item.fundCalibratedAt).slice(0, 10)} · 净值 ${formatQuotePrice(item.fundCalibrationNav, item.currency)}`
+        : "";
+      const details = [item.resolvedQuoteId, calibration, item.quoteError].filter(Boolean).join(" · ");
       if (details) quote.title = details;
     }
     appendCell(row, "行情", quote);
@@ -1319,6 +1345,7 @@
     name.textContent = group.label;
     const accounts = new Set(group.rows.map(({ item }) => item.account).filter(Boolean));
     const assetTypes = new Set(group.rows.map(({ item }) => typeLabels[item.assetType]).filter(Boolean));
+    const estimatedFunds = group.rows.filter(({ item }) => fundUsesEstimatedShares(item)).length;
     const currencies = [...new Set(group.rows.map(({ item }) => item.currency || "CNY"))];
     const currencyText = currencies.some((currency) => currency !== "CNY")
       ? `${currencies.join("/")} · 已折算人民币`
@@ -1328,6 +1355,7 @@
     meta.textContent = [
       `${group.rows.length}笔持仓`,
       group.mode === "platform" ? `${assetTypes.size}类资产` : (accounts.size ? `${accounts.size}个平台` : ""),
+      estimatedFunds ? `${estimatedFunds}笔份额估算` : "",
       group.unassigned ? "不计入策略饼图" : "",
       currencyText
     ].filter(Boolean).join(" · ");
@@ -1342,10 +1370,10 @@
     }), { value: 0, exposure: 0, pnl: 0 });
     appendCell(row, "持仓", `${group.rows.length}笔`);
     appendCell(row, "最新价", "展开查看");
-    appendCell(row, "当前价值", formatMoney(totals.value));
-    appendCell(row, "风险敞口", formatMoney(totals.exposure));
+    appendCell(row, "当前价值", `${estimatedFunds ? "≈" : ""}${formatMoney(totals.value)}`);
+    appendCell(row, "风险敞口", `${estimatedFunds ? "≈" : ""}${formatMoney(totals.exposure)}`);
     appendCell(row, "资产权重", metrics.totalAssets > 0 ? formatPercent(totals.value / metrics.totalAssets) : "--");
-    const pnlCell = appendCell(row, "累计盈亏", formatMoney(totals.pnl));
+    const pnlCell = appendCell(row, "累计盈亏", `${estimatedFunds ? "≈" : ""}${formatMoney(totals.pnl)}`);
     setSignedClass(pnlCell, totals.pnl);
 
     const automatic = group.rows.filter(({ item }) => item.pricingMode === "auto");
@@ -1561,16 +1589,34 @@
 
   function setFieldVisibility() {
     const type = $("holding-type").value;
+    const amountFund = type === "fund" && $("holding-fund-input-mode").value === "amount";
+    if (amountFund) $("holding-pricing-mode").value = "auto";
     const pricing = $("holding-pricing-mode").value;
     const derivative = type === "futures" || type === "option";
-    document.querySelectorAll(".quantity-field").forEach((node) => { node.hidden = ["fixed", "interest"].includes(pricing); });
-    document.querySelectorAll(".price-field").forEach((node) => { node.hidden = ["fixed", "interest"].includes(pricing); });
+    document.querySelectorAll(".fund-mode-field").forEach((node) => { node.hidden = type !== "fund"; });
+    document.querySelectorAll(".fund-amount-field").forEach((node) => { node.hidden = !amountFund; });
+    document.querySelectorAll(".quantity-field").forEach((node) => { node.hidden = amountFund || ["fixed", "interest"].includes(pricing); });
+    document.querySelectorAll(".price-field").forEach((node) => { node.hidden = amountFund || ["fixed", "interest"].includes(pricing); });
     document.querySelectorAll(".fixed-field").forEach((node) => { node.hidden = !["fixed", "interest"].includes(pricing); });
     document.querySelectorAll(".interest-field").forEach((node) => { node.hidden = pricing !== "interest"; });
     document.querySelectorAll(".derivative-field").forEach((node) => { node.hidden = !derivative; });
     document.querySelectorAll(".multiplier-field").forEach((node) => { node.hidden = !derivative; });
     document.querySelectorAll(".option-field").forEach((node) => { node.hidden = type !== "option"; });
+    $("pricing-mode-field").hidden = amountFund;
     $("quote-id-field").hidden = pricing !== "auto";
+    updateFundCalibrationHint();
+  }
+
+  function updateFundCalibrationHint() {
+    const hint = $("fund-calibration-hint");
+    const existing = vault?.holdings.find((item) => item.id === $("holding-id").value);
+    const amount = numeric($("holding-fund-seed-amount").value);
+    const unchanged = existing && fundUsesEstimatedShares(existing)
+      && Math.abs(amount - numeric(existing.fundSeedAmount)) < 0.005
+      && existing.fundCalibratedAt;
+    hint.textContent = unchanged
+      ? `已按 ${String(existing.fundCalibratedAt).slice(0, 10)} 净值 ${formatQuotePrice(existing.fundCalibrationNav, existing.currency)} 估算；修改金额会重新校准`
+      : "保存时按最新已公布净值估算份额";
   }
 
   function applyTypeDefaults() {
@@ -1595,6 +1641,12 @@
       $("holding-pricing-mode").value = "auto";
       $("holding-multiplier").value = "1";
       $("holding-include-nav").checked = true;
+    } else if (type === "fund") {
+      $("holding-fund-input-mode").value = "amount";
+      $("holding-currency").value = "CNY";
+      $("holding-pricing-mode").value = "auto";
+      $("holding-multiplier").value = "1";
+      $("holding-include-nav").checked = true;
     } else {
       $("holding-pricing-mode").value = "auto";
       $("holding-multiplier").value = "1";
@@ -1608,6 +1660,7 @@
     $("holding-id").value = "";
     $("holding-type").value = "stock";
     $("holding-bucket").value = "other";
+    $("holding-fund-input-mode").value = "amount";
     $("holding-currency").value = "CNY";
     $("holding-pricing-mode").value = "auto";
     $("holding-direction").value = "1";
@@ -1630,6 +1683,7 @@
       $("holding-code").value = item.code || "";
       $("holding-type").value = item.assetType || "other";
       $("holding-bucket").value = item.strategyBucket || "other";
+      $("holding-fund-input-mode").value = item.fundInputMode || "shares";
       $("holding-currency").value = item.currency || "CNY";
       $("holding-pricing-mode").value = item.pricingMode || "manual";
       $("holding-quote-id").value = item.quoteId || "";
@@ -1641,6 +1695,7 @@
       $("holding-delta").value = item.delta ?? "";
       $("holding-underlying-price").value = item.underlyingPrice ?? "";
       $("holding-fixed-value").value = item.fixedValue ?? "";
+      $("holding-fund-seed-amount").value = item.fundSeedAmount ?? "";
       $("holding-annual-rate").value = numeric(item.annualRate) * 100 || "";
       $("holding-valuation-date").value = item.valuationDate || chinaDate();
       $("holding-notes").value = item.notes || "";
@@ -1654,36 +1709,65 @@
   function formItem() {
     const id = $("holding-id").value;
     const existing = vault.holdings.find((item) => item.id === id) || {};
-    return {
+    const assetType = $("holding-type").value;
+    const fundInputMode = assetType === "fund" ? $("holding-fund-input-mode").value : "";
+    const fundSeedAmount = numeric($("holding-fund-seed-amount").value);
+    const amountFund = assetType === "fund" && fundInputMode === "amount";
+    const resetFundCalibration = amountFund && (
+      !fundUsesEstimatedShares(existing)
+      || Math.abs(fundSeedAmount - numeric(existing.fundSeedAmount)) >= 0.005
+      || !existing.fundCalibratedAt
+    );
+    const item = {
       ...existing,
       id: id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`),
       account: $("holding-account").value.trim(),
       name: $("holding-name").value.trim(),
       underlyingName: $("holding-underlying-name").value.trim(),
       code: $("holding-code").value.trim().toUpperCase(),
-      assetType: $("holding-type").value,
+      assetType,
       strategyBucket: $("holding-bucket").value,
       currency: $("holding-currency").value,
       pricingMode: $("holding-pricing-mode").value,
       quoteId: $("holding-quote-id").value.trim(),
-      quantity: numeric($("holding-quantity").value),
-      price: numeric($("holding-price").value),
-      entryPrice: numeric($("holding-entry-price").value),
+      quantity: amountFund ? numeric(existing.quantity) : numeric($("holding-quantity").value),
+      price: amountFund ? numeric(existing.price) : numeric($("holding-price").value),
+      entryPrice: amountFund ? numeric(existing.entryPrice) : numeric($("holding-entry-price").value),
       direction: numeric($("holding-direction").value, 1),
       multiplier: numeric($("holding-multiplier").value, 1),
       delta: numeric($("holding-delta").value),
       underlyingPrice: numeric($("holding-underlying-price").value),
       fixedValue: numeric($("holding-fixed-value").value),
+      fundInputMode,
+      fundSeedAmount: amountFund ? fundSeedAmount : 0,
+      fundCalibrationNav: amountFund ? existing.fundCalibrationNav : null,
+      fundCalibratedAt: amountFund ? existing.fundCalibratedAt : null,
       annualRate: numeric($("holding-annual-rate").value) / 100,
       valuationDate: $("holding-valuation-date").value,
       notes: $("holding-notes").value.trim(),
       includeNav: $("holding-include-nav").checked,
       updatedAt: new Date().toISOString()
     };
+    if (resetFundCalibration) {
+      item.quantity = 0;
+      item.price = 0;
+      item.previousClose = 0;
+      item.entryPrice = 0;
+      item.fundCalibrationNav = null;
+      item.fundCalibratedAt = null;
+    }
+    return item;
   }
 
   function validateItem(item) {
-    if (!item.name) return "请填写资产名称";
+    const estimatedFund = fundUsesEstimatedShares(item);
+    if (!item.name && !estimatedFund) return "请填写资产名称";
+    if (estimatedFund) {
+      if (item.pricingMode !== "auto") return "金额估算模式需要使用自动行情";
+      if (!(item.fundSeedAmount > 0)) return "请填写平台显示的当前金额";
+      if (!inferQuoteId(item)) return "无法识别基金代码，请填写6位基金代码";
+      return "";
+    }
     if (["fixed", "interest"].includes(item.pricingMode)) {
       if (!(item.fixedValue >= 0)) return "请填写当前金额";
     } else {
@@ -1704,6 +1788,25 @@
       $("holding-form-error").textContent = error;
       return;
     }
+    const saveButton = $("save-holding");
+    const calibratingFund = fundNeedsCalibration(item);
+    if (calibratingFund) {
+      saveButton.disabled = true;
+      saveButton.textContent = "正在读取净值";
+      $("holding-form-error").textContent = "";
+      try {
+        const quoteId = inferQuoteId(item);
+        const quote = await fetchQuote(quoteId);
+        applyQuoteToHolding(item, quote, quoteId);
+        if (!item.name) item.name = quote.name || `基金 ${item.code}`;
+      } catch (calibrationError) {
+        $("holding-form-error").textContent = `暂时没有取到基金净值：${calibrationError?.message || "请稍后重试"}`;
+        saveButton.disabled = false;
+        saveButton.textContent = "保存资产";
+        return;
+      }
+    }
+    if (!item.name) item.name = item.quoteName || `基金 ${item.code}`;
     const index = vault.holdings.findIndex((holding) => holding.id === item.id);
     if (index >= 0) vault.holdings[index] = item;
     else vault.holdings.push(item);
@@ -1711,8 +1814,10 @@
     await persistVault();
     holdingDialog.close();
     renderAll();
-    showToast(index >= 0 ? "资产已更新" : "资产已添加");
-    if (item.pricingMode === "auto") refreshQuotes({ silent: true });
+    saveButton.disabled = false;
+    saveButton.textContent = "保存资产";
+    showToast(calibratingFund ? `已按净值 ${formatQuotePrice(item.fundCalibrationNav, item.currency)} 估算 ${formatNumber(item.quantity)} 份` : (index >= 0 ? "资产已更新" : "资产已添加"));
+    if (item.pricingMode === "auto" && !calibratingFund) refreshQuotes({ silent: true });
   }
 
   async function deleteHolding(id) {
@@ -1884,6 +1989,8 @@
   $("close-dialog").addEventListener("click", () => holdingDialog.close());
   $("cancel-holding").addEventListener("click", () => holdingDialog.close());
   $("holding-type").addEventListener("change", applyTypeDefaults);
+  $("holding-fund-input-mode").addEventListener("change", setFieldVisibility);
+  $("holding-fund-seed-amount").addEventListener("input", updateFundCalibrationHint);
   $("holding-pricing-mode").addEventListener("change", setFieldVisibility);
   holdingForm.addEventListener("submit", saveHolding);
 
