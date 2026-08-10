@@ -611,11 +611,6 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   color: var(--blue);
   font-size: 17px;
   line-height: 1;
-  transition: transform 160ms ease;
-}
-
-.daily-contribution-row.is-expanded .daily-contribution-chevron {
-  transform: rotate(90deg);
 }
 
 .daily-contribution-track {
@@ -666,63 +661,6 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   color: var(--muted);
   font-size: 11px;
   text-align: center;
-}
-
-.daily-contribution-details {
-  margin: -2px 0 4px;
-  padding: 10px 12px 8px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-}
-
-.daily-contribution-details-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 7px;
-  border-bottom: 1px solid var(--line);
-}
-
-.daily-contribution-details-heading strong {
-  font-size: 11px;
-}
-
-.daily-contribution-details-heading span {
-  color: var(--muted);
-  font-size: 9px;
-}
-
-.daily-contribution-details-list {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 3px 0 0;
-  list-style: none;
-}
-
-.daily-contribution-details-list li {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-  font-size: 10px;
-}
-
-.daily-contribution-details-list li > span:nth-child(2) {
-  overflow: hidden;
-  color: #36424e;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.daily-contribution-details-list li strong {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 .daily-contribution-detail-rank {
@@ -819,6 +757,7 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
 
 .donut-segment {
   cursor: pointer;
+  touch-action: manipulation;
   transform-box: fill-box;
   transform-origin: center;
   transition: filter 140ms ease, transform 140ms ease;
@@ -888,6 +827,7 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   border-radius: 3px;
   font-size: 10px;
   text-align: left;
+  touch-action: manipulation;
 }
 
 .donut-legend-button:hover,
@@ -926,7 +866,7 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 3px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-align: center;
@@ -1547,6 +1487,100 @@ dialog::backdrop {
   padding: 22px;
 }
 
+.daily-contribution-dialog {
+  width: min(520px, calc(100% - 28px));
+  max-height: calc(100vh - 36px);
+  padding: 0;
+}
+
+.daily-contribution-dialog-shell {
+  max-height: calc(100vh - 38px);
+  padding: 22px;
+  overflow: auto;
+}
+
+.daily-contribution-dialog-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 14px;
+  margin: 18px 0 4px;
+  padding: 14px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.daily-contribution-dialog-summary strong,
+.daily-contribution-dialog-summary span {
+  display: block;
+}
+
+.daily-contribution-dialog-summary strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-contribution-dialog-summary span {
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+
+.daily-contribution-dialog-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 8px 0 0;
+  list-style: none;
+}
+
+.daily-contribution-dialog-list li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.daily-contribution-dialog-list li > strong {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.daily-contribution-dialog-identity {
+  min-width: 0;
+}
+
+.daily-contribution-dialog-identity strong,
+.daily-contribution-dialog-identity small {
+  display: block;
+}
+
+.daily-contribution-dialog-identity strong {
+  overflow: hidden;
+  color: #36424e;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-contribution-dialog-identity small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.daily-contribution-dialog-hint {
+  margin: 11px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  text-align: right;
+}
+
 .trade-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2011,6 +2045,26 @@ dialog::backdrop {
   .transactions-table td:nth-child(2)::before,
   .transactions-table td:last-child::before {
     display: none;
+  }
+
+  .daily-contribution-dialog {
+    width: calc(100% - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .daily-contribution-dialog-shell {
+    max-height: calc(100dvh - 18px);
+    padding: 18px 16px;
+  }
+
+  .daily-contribution-dialog-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .daily-contribution-dialog-summary span {
+    text-align: left;
   }
 
   .trade-form-grid {

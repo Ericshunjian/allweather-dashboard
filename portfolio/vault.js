@@ -66,7 +66,6 @@
   let quoteRefreshTimer = null;
   let summaryValuesVisible = false;
   const expandedHoldingGroups = new Set();
-  const expandedDailyContributionGroups = new Set();
 
   const $ = (id) => document.getElementById(id);
   const lockScreen = $("lock-screen");
@@ -79,6 +78,7 @@
   const holdingForm = $("holding-form");
   const tradeDialog = $("trade-dialog");
   const tradeForm = $("trade-form");
+  const dailyContributionDialog = $("daily-contribution-dialog");
   const confirmDialog = $("confirm-dialog");
   const syncDialog = $("sync-dialog");
 
@@ -491,8 +491,7 @@
     vault = null;
     summaryValuesVisible = false;
     expandedHoldingGroups.clear();
-    expandedDailyContributionGroups.clear();
-    [holdingDialog, tradeDialog, syncDialog, confirmDialog].forEach((dialog) => {
+    [holdingDialog, tradeDialog, dailyContributionDialog, syncDialog, confirmDialog].forEach((dialog) => {
       if (dialog?.open) dialog.close();
     });
     pendingConfirmation = null;
@@ -1250,6 +1249,7 @@
     ring.className = "donut-ring";
     ring.setAttribute("role", "group");
     ring.setAttribute("aria-label", segments.map((item) => `${item.label}${formatPercent(item.value / total)}`).join("，"));
+    ring.title = "悬停查看金额和占比；手机点按可固定显示";
     const svgNamespace = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNamespace, "svg");
     svg.classList.add("donut-svg");
@@ -1282,8 +1282,8 @@
     const renderDetail = (item = null) => {
       const activeKey = item?.key || "";
       detail.textContent = item
-        ? `${item.label} · ${formatMoney(item.value)} · ${formatPercent(item.value / total)}`
-        : `合计 ${formatMoney(total)} · 悬停或点击查看明细`;
+        ? `${item.label}｜金额 ${formatMoney(item.value)}｜占比 ${formatPercent(item.value / total)}${pinnedKey === item.key ? "｜已选择" : ""}`
+        : `合计 ${formatMoney(total)}｜悬停饼图查看；手机点按可固定`;
       centerValue.textContent = formatCompactMoney(item?.value ?? total);
       centerLabel.textContent = item?.label || options.centerLabel;
       segmentNodes.forEach((node, key) => {
@@ -1391,6 +1391,58 @@
     renderDonut("strategy-donut", strategies, { centerLabel: "总敞口", emptyMessage: "尚无已归类的策略资产" });
   }
 
+  function dailyContributionDetails(group) {
+    const detailsByUnderlying = new Map();
+    group.rows.forEach(({ item: holding, calc }) => {
+      const identity = holdingGroupIdentity(holding) || { key: `item:${holding.id}`, label: holding.name || "未命名资产" };
+      const detailKey = identity.key.replace(/^(?:underlying|known):/, "label:");
+      const detailItem = detailsByUnderlying.get(detailKey) || { key: detailKey, label: identity.label, value: 0 };
+      detailItem.value += calc.dailyPnlCny;
+      detailsByUnderlying.set(detailKey, detailItem);
+    });
+    return [...detailsByUnderlying.values()]
+      .filter((item) => group.value > 0 ? item.value > 0 : item.value < 0)
+      .sort((left, right) => group.value > 0 ? right.value - left.value : left.value - right.value)
+      .slice(0, 5);
+  }
+
+  function openDailyContributionDetails(group) {
+    const positive = group.value > 0;
+    const directionLabel = positive ? "盈利" : "亏损";
+    const formattedTotal = positive ? `+${formatMoney(group.value)}` : formatMoney(group.value);
+    const details = dailyContributionDetails(group);
+    const directionalTotal = details.reduce((sum, item) => sum + Math.abs(item.value), 0);
+    $("daily-contribution-dialog-title").textContent = `${group.label} · ${directionLabel}贡献`;
+    const total = $("daily-contribution-dialog-total");
+    total.className = positive ? "positive" : "negative";
+    total.textContent = `今日${directionLabel}贡献 ${formattedTotal}`;
+    $("daily-contribution-dialog-note").textContent = `前五大细分资产 · 按底层资产合并`;
+    const list = $("daily-contribution-dialog-list");
+    list.replaceChildren();
+    details.forEach((detail, index) => {
+      const listItem = document.createElement("li");
+      const rank = document.createElement("span");
+      rank.className = "daily-contribution-detail-rank";
+      rank.textContent = String(index + 1);
+      const identity = document.createElement("div");
+      identity.className = "daily-contribution-dialog-identity";
+      const label = document.createElement("strong");
+      label.textContent = detail.label;
+      label.title = detail.label;
+      const share = document.createElement("small");
+      share.textContent = directionalTotal > 0
+        ? `占所列${directionLabel}贡献 ${formatPercent(Math.abs(detail.value) / directionalTotal)}`
+        : directionLabel;
+      identity.append(label, share);
+      const value = document.createElement("strong");
+      value.className = detail.value > 0 ? "positive" : "negative";
+      value.textContent = detail.value > 0 ? `+${formatMoney(detail.value)}` : formatMoney(detail.value);
+      listItem.append(rank, identity, value);
+      list.appendChild(listItem);
+    });
+    dailyContributionDialog.showModal();
+  }
+
   function renderDailyContribution(metrics) {
     const chart = $("daily-contribution-chart");
     chart.replaceChildren();
@@ -1437,12 +1489,11 @@
 
     const maxAbsolute = Math.max(...selected.map((item) => Math.abs(item.value)), 1e-12);
     selected.forEach((item) => {
-      const expanded = expandedDailyContributionGroups.has(item.key);
       const row = document.createElement("button");
       row.className = "daily-contribution-row";
       row.type = "button";
-      row.setAttribute("aria-expanded", String(expanded));
-      row.title = `点击查看${item.label}的细分资产盈亏`;
+      row.setAttribute("aria-haspopup", "dialog");
+      row.title = `点击查看${item.label}${item.value > 0 ? "盈利" : "亏损"}贡献前五明细`;
       const labelWrap = document.createElement("span");
       labelWrap.className = "daily-contribution-label-wrap";
       const chevron = document.createElement("span");
@@ -1465,58 +1516,8 @@
       value.textContent = item.value > 0 ? `+${formatMoney(item.value)}` : formatMoney(item.value);
       row.setAttribute("aria-label", `${item.label} ${item.value > 0 ? "盈利贡献" : "亏损贡献"}${value.textContent}`);
       row.append(labelWrap, track, value);
-      row.classList.toggle("is-expanded", expanded);
-      row.addEventListener("click", () => {
-        if (expandedDailyContributionGroups.has(item.key)) expandedDailyContributionGroups.delete(item.key);
-        else expandedDailyContributionGroups.add(item.key);
-        renderDailyContribution(metrics);
-      });
+      row.addEventListener("click", () => openDailyContributionDetails(item));
       chart.appendChild(row);
-
-      if (expanded) {
-        const detailsByUnderlying = new Map();
-        item.rows.forEach(({ item: holding, calc }) => {
-          const identity = holdingGroupIdentity(holding) || { key: `item:${holding.id}`, label: holding.name || "未命名资产" };
-          const detailKey = identity.key.replace(/^(?:underlying|known):/, "label:");
-          const detailItem = detailsByUnderlying.get(detailKey) || { key: detailKey, label: identity.label, value: 0 };
-          detailItem.value += calc.dailyPnlCny;
-          detailsByUnderlying.set(detailKey, detailItem);
-        });
-        const sameDirectionDetails = [...detailsByUnderlying.values()]
-          .filter((detailItem) => item.value > 0 ? detailItem.value > 0 : detailItem.value < 0)
-          .sort((left, right) => item.value > 0 ? right.value - left.value : left.value - right.value)
-          .slice(0, 5);
-        const details = document.createElement("div");
-        details.className = "daily-contribution-details";
-        details.setAttribute("role", "region");
-        details.setAttribute("aria-label", `${item.label}${item.value > 0 ? "盈利" : "亏损"}贡献明细`);
-        const detailsHeading = document.createElement("div");
-        detailsHeading.className = "daily-contribution-details-heading";
-        const detailsTitle = document.createElement("strong");
-        detailsTitle.textContent = `${item.value > 0 ? "盈利" : "亏损"}贡献前五`;
-        const detailsHint = document.createElement("span");
-        detailsHint.textContent = "按底层资产合并";
-        detailsHeading.append(detailsTitle, detailsHint);
-        const list = document.createElement("ol");
-        list.className = "daily-contribution-details-list";
-        sameDirectionDetails.forEach((detailItem, index) => {
-          const listItem = document.createElement("li");
-          const rank = document.createElement("span");
-          rank.className = "daily-contribution-detail-rank";
-          rank.textContent = String(index + 1);
-          const detailLabel = document.createElement("span");
-          detailLabel.textContent = detailItem.label;
-          detailLabel.title = detailItem.label;
-          const detailValue = document.createElement("strong");
-          const detailDirection = detailItem.value > 0 ? "positive" : "negative";
-          detailValue.className = detailDirection;
-          detailValue.textContent = detailItem.value > 0 ? `+${formatMoney(detailItem.value)}` : formatMoney(detailItem.value);
-          listItem.append(rank, detailLabel, detailValue);
-          list.appendChild(listItem);
-        });
-        details.append(detailsHeading, list);
-        chart.appendChild(details);
-      }
     });
   }
 
@@ -2787,6 +2788,10 @@
   holdingForm.addEventListener("submit", saveHolding);
   $("close-trade-dialog").addEventListener("click", () => tradeDialog.close());
   $("cancel-trade").addEventListener("click", () => tradeDialog.close());
+  $("close-daily-contribution-dialog").addEventListener("click", () => dailyContributionDialog.close());
+  dailyContributionDialog.addEventListener("click", (event) => {
+    if (event.target === dailyContributionDialog) dailyContributionDialog.close();
+  });
   $("trade-holding").addEventListener("change", () => updateTradeFormForHolding());
   $("trade-type").addEventListener("change", updateTradePreview);
   $("trade-input-mode").addEventListener("change", updateTradeInputVisibility);
