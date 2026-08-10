@@ -60,6 +60,7 @@
   let localVaultHasUserChanges = false;
   let historyPeriod = "day";
   let quoteRefreshTimer = null;
+  const expandedHoldingGroups = new Set();
 
   const $ = (id) => document.getElementById(id);
   const lockScreen = $("lock-screen");
@@ -1028,65 +1029,187 @@
     return cell;
   }
 
+  function normalizedGroupToken(value) {
+    return String(value || "")
+      .trim()
+      .toLocaleLowerCase("zh-CN")
+      .replace(/[\s·_\-—/()（）&.]+/g, "");
+  }
+
+  function holdingGroupIdentity(item) {
+    const explicit = String(item.underlyingName || "").trim();
+    if (explicit) return { key: `underlying:${normalizedGroupToken(explicit)}`, label: explicit };
+
+    const descriptor = [item.name, item.code, item.quoteName].filter(Boolean).join(" ");
+    const knownUnderlyings = [
+      { label: "标普500", pattern: /标普\s*500|S\s*&\s*P\s*500|S\s*P\s*500|(?:^|\s)(?:SPY|VOO|IVV|SPLG)(?:\.US)?(?:$|\s)/i },
+      { label: "纳斯达克100", pattern: /纳斯达克\s*100|纳指\s*100|NASDAQ\s*100|(?:^|\s)QQQ(?:M)?(?:\.US)?(?:$|\s)/i },
+      { label: "沪深300", pattern: /沪深\s*300|CSI\s*300/i },
+      { label: "中证A500", pattern: /中证\s*A\s*500|(?:^|\s)A500(?:$|\s)/i }
+    ];
+    const known = knownUnderlyings.find((rule) => rule.pattern.test(descriptor));
+    if (known) return { key: `known:${normalizedGroupToken(known.label)}`, label: known.label };
+
+    const code = normalizedGroupToken(item.code);
+    if (code) return { key: `code:${code}`, label: item.name || item.code };
+    const name = normalizedGroupToken(item.name);
+    if (name) return { key: `name:${name}`, label: item.name };
+    return null;
+  }
+
+  function holdingPresentationEntries(rows) {
+    const grouped = new Map();
+    rows.forEach((row, index) => {
+      const identity = holdingGroupIdentity(row.item);
+      if (!identity) {
+        grouped.set(`item:${row.item.id}`, { ...identity, key: `item:${row.item.id}`, label: row.item.name, rows: [row], index });
+        return;
+      }
+      if (!grouped.has(identity.key)) grouped.set(identity.key, { ...identity, rows: [], index });
+      grouped.get(identity.key).rows.push(row);
+    });
+    return [...grouped.values()].sort((left, right) => left.index - right.index);
+  }
+
+  function createHoldingIdentity(item) {
+    const identity = document.createElement("div");
+    const name = document.createElement("span");
+    name.className = "holding-name";
+    name.textContent = item.name;
+    const meta = document.createElement("span");
+    meta.className = "holding-meta";
+    meta.textContent = [item.account, item.code, typeLabels[item.assetType]].filter(Boolean).join(" · ");
+    identity.append(name, meta);
+    return identity;
+  }
+
+  function createHoldingRow({ item, calc }, metrics, options = {}) {
+    const row = document.createElement("tr");
+    if (options.child) row.className = "holding-child-row";
+    appendCell(row, "资产", createHoldingIdentity(item));
+
+    let positionText;
+    if (["fixed", "interest"].includes(item.pricingMode)) positionText = formatNative(accruedFixedValue(item), item.currency);
+    else positionText = `${formatNumber(item.quantity)} ${calc.derivative ? "手" : "份"}`;
+    appendCell(row, "持仓", positionText);
+    const latestPrice = ["fixed", "interest"].includes(item.pricingMode)
+      ? "--"
+      : formatQuotePrice(item.price, item.currency);
+    appendCell(row, "最新价", latestPrice);
+    appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
+    appendCell(row, "风险敞口", formatMoney(calc.exposureCny));
+    appendCell(row, "资产权重", metrics.totalAssets > 0 && item.includeNav ? formatPercent(calc.valueCny / metrics.totalAssets) : "--");
+    const pnlCell = appendCell(row, "累计盈亏", formatMoney(calc.pnlCny));
+    setSignedClass(pnlCell, calc.pnlCny);
+
+    const quote = document.createElement("span");
+    const quoteSucceeded = item.quoteTime && item.quoteStatus !== "更新失败";
+    quote.className = `quote-status${quoteSucceeded ? " ok" : ""}`;
+    quote.textContent = item.pricingMode === "auto" ? (item.quoteStatus || "待刷新") : "本地估值";
+    if (item.pricingMode === "auto") {
+      const details = [item.resolvedQuoteId, item.quoteError].filter(Boolean).join(" · ");
+      if (details) quote.title = details;
+    }
+    appendCell(row, "行情", quote);
+
+    const actions = document.createElement("div");
+    actions.className = "table-actions";
+    const edit = document.createElement("button");
+    edit.className = "table-action";
+    edit.type = "button";
+    edit.textContent = "编辑";
+    edit.dataset.action = "edit";
+    edit.dataset.id = item.id;
+    const remove = document.createElement("button");
+    remove.className = "table-action";
+    remove.type = "button";
+    remove.textContent = "删除";
+    remove.dataset.action = "delete";
+    remove.dataset.id = item.id;
+    actions.append(edit, remove);
+    appendCell(row, "操作", actions);
+    return row;
+  }
+
+  function createHoldingGroupRow(group, metrics) {
+    const expanded = expandedHoldingGroups.has(group.key);
+    const row = document.createElement("tr");
+    row.className = `holding-group-row${expanded ? " is-expanded" : ""}`;
+    row.dataset.groupKey = group.key;
+
+    const toggle = document.createElement("button");
+    toggle.className = "holding-group-toggle";
+    toggle.type = "button";
+    toggle.dataset.action = "toggle-group";
+    toggle.dataset.groupKey = group.key;
+    toggle.setAttribute("aria-expanded", String(expanded));
+    toggle.setAttribute("aria-label", `${expanded ? "收起" : "展开"}${group.label}的${group.rows.length}笔持仓`);
+    const chevron = document.createElement("span");
+    chevron.className = "holding-group-chevron";
+    chevron.textContent = "›";
+    const identity = document.createElement("span");
+    const name = document.createElement("span");
+    name.className = "holding-name";
+    name.textContent = group.label;
+    const accounts = new Set(group.rows.map(({ item }) => item.account).filter(Boolean));
+    const currencies = [...new Set(group.rows.map(({ item }) => item.currency || "CNY"))];
+    const currencyText = currencies.some((currency) => currency !== "CNY")
+      ? `${currencies.join("/")} · 已折算人民币`
+      : "人民币口径";
+    const meta = document.createElement("span");
+    meta.className = "holding-meta";
+    meta.textContent = [
+      `${group.rows.length}笔持仓`,
+      accounts.size ? `${accounts.size}个平台` : "",
+      currencyText
+    ].filter(Boolean).join(" · ");
+    identity.append(name, meta);
+    toggle.append(chevron, identity);
+    appendCell(row, "资产", toggle);
+
+    const totals = group.rows.reduce((sum, { calc }) => ({
+      value: sum.value + calc.valueCny,
+      exposure: sum.exposure + calc.exposureCny,
+      pnl: sum.pnl + calc.pnlCny
+    }), { value: 0, exposure: 0, pnl: 0 });
+    appendCell(row, "持仓", `${group.rows.length}笔`);
+    appendCell(row, "最新价", "展开查看");
+    appendCell(row, "当前价值", formatMoney(totals.value));
+    appendCell(row, "风险敞口", formatMoney(totals.exposure));
+    appendCell(row, "资产权重", metrics.totalAssets > 0 ? formatPercent(totals.value / metrics.totalAssets) : "--");
+    const pnlCell = appendCell(row, "累计盈亏", formatMoney(totals.pnl));
+    setSignedClass(pnlCell, totals.pnl);
+
+    const automatic = group.rows.filter(({ item }) => item.pricingMode === "auto");
+    const successful = automatic.filter(({ item }) => item.quoteTime && item.quoteStatus !== "更新失败").length;
+    const quote = document.createElement("span");
+    quote.className = `quote-status${automatic.length && successful === automatic.length ? " ok" : ""}`;
+    quote.textContent = automatic.length ? `行情 ${successful}/${automatic.length}` : "本地估值";
+    quote.title = "各项价值已按最新汇率换算为人民币";
+    appendCell(row, "行情", quote);
+    const actionHint = document.createElement("span");
+    actionHint.className = "holding-group-action";
+    actionHint.textContent = expanded ? "收起" : "展开";
+    const actionCell = appendCell(row, "操作", actionHint);
+    actionCell.className = "holding-group-action-cell";
+    return row;
+  }
+
   function renderHoldings(metrics) {
     const body = $("holdings-body");
     body.replaceChildren();
     const visible = metrics.rows.filter(({ item }) => activeFilter === "all" || assetClass(item) === activeFilter);
     $("holdings-empty").hidden = vault.holdings.length > 0;
     $("holdings-table-wrap").hidden = vault.holdings.length === 0;
-    visible.forEach(({ item, calc }) => {
-      const row = document.createElement("tr");
-      const identity = document.createElement("div");
-      const name = document.createElement("span");
-      name.className = "holding-name";
-      name.textContent = item.name;
-      const meta = document.createElement("span");
-      meta.className = "holding-meta";
-      meta.textContent = [item.account, item.code, typeLabels[item.assetType]].filter(Boolean).join(" · ");
-      identity.append(name, meta);
-      appendCell(row, "资产", identity);
-
-      let positionText;
-      if (["fixed", "interest"].includes(item.pricingMode)) positionText = formatNative(accruedFixedValue(item), item.currency);
-      else positionText = `${formatNumber(item.quantity)} ${calc.derivative ? "手" : "份"}`;
-      appendCell(row, "持仓", positionText);
-      const latestPrice = ["fixed", "interest"].includes(item.pricingMode)
-        ? "--"
-        : formatQuotePrice(item.price, item.currency);
-      appendCell(row, "最新价", latestPrice);
-      appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
-      appendCell(row, "风险敞口", formatMoney(calc.exposureCny));
-      appendCell(row, "资产权重", metrics.totalAssets > 0 && item.includeNav ? formatPercent(calc.valueCny / metrics.totalAssets) : "--");
-      const pnlCell = appendCell(row, "累计盈亏", formatMoney(calc.pnlCny));
-      setSignedClass(pnlCell, calc.pnlCny);
-
-      const quote = document.createElement("span");
-      const quoteSucceeded = item.quoteTime && item.quoteStatus !== "更新失败";
-      quote.className = `quote-status${quoteSucceeded ? " ok" : ""}`;
-      quote.textContent = item.pricingMode === "auto" ? (item.quoteStatus || "待刷新") : "本地估值";
-      if (item.pricingMode === "auto") {
-        const details = [item.resolvedQuoteId, item.quoteError].filter(Boolean).join(" · ");
-        if (details) quote.title = details;
+    holdingPresentationEntries(visible).forEach((group) => {
+      if (group.rows.length < 2) {
+        body.appendChild(createHoldingRow(group.rows[0], metrics));
+        return;
       }
-      appendCell(row, "行情", quote);
-
-      const actions = document.createElement("div");
-      actions.className = "table-actions";
-      const edit = document.createElement("button");
-      edit.className = "table-action";
-      edit.type = "button";
-      edit.textContent = "编辑";
-      edit.dataset.action = "edit";
-      edit.dataset.id = item.id;
-      const remove = document.createElement("button");
-      remove.className = "table-action";
-      remove.type = "button";
-      remove.textContent = "删除";
-      remove.dataset.action = "delete";
-      remove.dataset.id = item.id;
-      actions.append(edit, remove);
-      appendCell(row, "操作", actions);
-      body.appendChild(row);
+      body.appendChild(createHoldingGroupRow(group, metrics));
+      if (expandedHoldingGroups.has(group.key)) {
+        group.rows.forEach((holding) => body.appendChild(createHoldingRow(holding, metrics, { child: true })));
+      }
     });
   }
 
@@ -1334,6 +1457,7 @@
       $("holding-id").value = item.id;
       $("holding-account").value = item.account || "";
       $("holding-name").value = item.name || "";
+      $("holding-underlying-name").value = item.underlyingName || "";
       $("holding-code").value = item.code || "";
       $("holding-type").value = item.assetType || "other";
       $("holding-bucket").value = item.strategyBucket || "other";
@@ -1366,6 +1490,7 @@
       id: id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`),
       account: $("holding-account").value.trim(),
       name: $("holding-name").value.trim(),
+      underlyingName: $("holding-underlying-name").value.trim(),
       code: $("holding-code").value.trim().toUpperCase(),
       assetType: $("holding-type").value,
       strategyBucket: $("holding-bucket").value,
@@ -1595,6 +1720,15 @@
 
   $("holdings-body").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
+    const groupRow = event.target.closest("tr[data-group-key]");
+    const groupKey = button?.dataset.action === "toggle-group" ? button.dataset.groupKey : groupRow?.dataset.groupKey;
+    if (groupKey) {
+      const key = groupKey;
+      if (expandedHoldingGroups.has(key)) expandedHoldingGroups.delete(key);
+      else expandedHoldingGroups.add(key);
+      renderHoldings(portfolioMetrics());
+      return;
+    }
     if (!button) return;
     const item = vault.holdings.find((holding) => holding.id === button.dataset.id);
     if (!item) return;

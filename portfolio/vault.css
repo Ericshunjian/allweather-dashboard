@@ -149,6 +149,14 @@ h2 {
   font-weight: 700;
 }
 
+.field-hint {
+  margin-top: -2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
 .password-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -566,6 +574,74 @@ input::placeholder {
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.holding-group-row td {
+  background: #f7f9fa;
+}
+
+.holding-group-row {
+  cursor: pointer;
+}
+
+.holding-group-row:hover td {
+  background: #f1f5f7;
+}
+
+.holding-group-row td:not(:first-child) {
+  font-weight: 700;
+}
+
+.holding-group-row td:nth-child(3),
+.holding-group-action {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.holding-group-toggle {
+  width: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+.holding-group-toggle:hover .holding-name {
+  color: var(--blue);
+}
+
+.holding-group-chevron {
+  display: block;
+  color: var(--blue);
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 160ms ease;
+}
+
+.holding-group-row.is-expanded .holding-group-chevron {
+  transform: rotate(90deg);
+}
+
+.holding-child-row td {
+  background: #fcfdfd;
+}
+
+.holding-child-row td:first-child {
+  padding-left: 34px;
+  border-left: 2px solid #d9e4eb;
+}
+
+.holding-child-row .holding-name {
+  font-weight: 700;
 }
 
 .quote-status {
@@ -1138,6 +1214,7 @@ dialog::backdrop {
 
   .holdings-table td,
   .holdings-table td:first-child {
+    width: 100%;
     padding: 0;
     border: 0;
     text-align: left;
@@ -1164,6 +1241,15 @@ dialog::backdrop {
 
   .table-actions {
     justify-content: flex-start;
+  }
+
+  .holding-group-action-cell {
+    display: none !important;
+  }
+
+  .holding-child-row td:first-child {
+    padding-left: 14px;
+    border-left: 2px solid #d9e4eb;
   }
 
   .form-grid {

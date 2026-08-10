@@ -111,7 +111,7 @@
           <button class="filter-button" type="button" data-filter="cash">现金</button>
         </div>
       </div>
-      <p class="quote-source-note">场内基金与股票约每 5 分钟自动刷新 · 场外基金显示最新公布净值 · 国债期货优先显示约 15 分钟延时行情，失败时回退最新日收盘</p>
+      <p class="quote-source-note">相同底层资产会自动折叠 · 不同币种按最新汇率折算成人民币 · 场内行情约每 5 分钟刷新</p>
       <div id="holdings-empty" class="empty-state">
         <strong>尚未录入资产</strong>
         <span>添加第一项持仓后开始计算组合。</span>
@@ -186,6 +186,10 @@
         </label>
         <label>资产名称
           <input id="holding-name" type="text" maxlength="60" required placeholder="例如：腾讯控股">
+        </label>
+        <label>底层资产（合并显示）
+          <input id="holding-underlying-name" type="text" maxlength="40" placeholder="例如：标普500">
+          <small class="field-hint">相同名称会折叠；常见指数可自动识别</small>
         </label>
         <label>代码
           <input id="holding-code" type="text" maxlength="40" placeholder="例如：00700">
