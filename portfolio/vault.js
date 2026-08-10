@@ -518,15 +518,41 @@
     toastTimer = setTimeout(() => toast.classList.remove("visible"), 2600);
   }
 
-  function chinaDate() {
+  function chinaDate(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
     const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Shanghai",
       year: "numeric",
       month: "2-digit",
       day: "2-digit"
-    }).formatToParts(new Date());
+    }).formatToParts(date);
     const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     return `${map.year}-${map.month}-${map.day}`;
+  }
+
+  function fundNavDate(item) {
+    return item.quoteTime ? chinaDate(item.quoteTime) : "";
+  }
+
+  function fundNavDailyPending(item) {
+    return item.pricingMode === "auto"
+      && holdingUsesFundNav(item)
+      && fundNavDate(item) !== chinaDate();
+  }
+
+  function fundQuotePresentation(item) {
+    const navDate = fundNavDate(item);
+    if (item.pricingMode !== "auto" || !holdingUsesFundNav(item) || !navDate) {
+      return { text: item.quoteStatus || "待刷新", pending: false };
+    }
+    if (fundNavDailyPending(item)) {
+      return {
+        text: `待更新 · 净值 ${navDate}${fundUsesEstimatedShares(item) ? " · 估算份额" : ""}`,
+        pending: true
+      };
+    }
+    return { text: `${item.quoteStatus || "基金净值"} · ${navDate}`, pending: false };
   }
 
   function formatMoney(value, digits = 0) {
@@ -698,6 +724,9 @@
       realizedPnlCny = numeric(item.realizedPnlCny);
     }
 
+    const dailyPnlPending = fundNavDailyPending(item);
+    if (dailyPnlPending) nativeDailyPnl = 0;
+
     const validFx = Number.isFinite(fx) && fx > 0;
     return {
       nativeValue,
@@ -710,7 +739,8 @@
       dailyPnlCny: validFx ? nativeDailyPnl * fx : 0,
       fx,
       validFx,
-      derivative
+      derivative,
+      dailyPnlPending
     };
   }
 
@@ -1717,8 +1747,9 @@
       : formatQuotePrice(item.price, item.currency);
     appendCell(row, "最新价", latestPrice);
     appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
-    const dailyCell = appendCell(row, "当日变动", formatMoney(calc.dailyPnlCny));
-    setSignedClass(dailyCell, calc.dailyPnlCny);
+    const dailyCell = appendCell(row, "当日变动", calc.dailyPnlPending ? "待净值" : formatMoney(calc.dailyPnlCny));
+    if (calc.dailyPnlPending) dailyCell.title = `最近净值日期 ${fundNavDate(item)}，当日盈亏暂不计算`;
+    else setSignedClass(dailyCell, calc.dailyPnlCny);
     appendCell(row, "风险敞口", formatMoney(calc.exposureCny));
     appendCell(row, "资产权重", metrics.totalAssets > 0 && item.includeNav ? formatPercent(calc.valueCny / metrics.totalAssets) : "--");
     const pnlCell = appendCell(row, "累计盈亏", formatMoney(calc.pnlCny));
@@ -1729,13 +1760,15 @@
 
     const quote = document.createElement("span");
     const quoteSucceeded = item.quoteTime && item.quoteStatus !== "更新失败";
-    quote.className = `quote-status${quoteSucceeded ? " ok" : ""}`;
-    quote.textContent = item.pricingMode === "auto" ? (item.quoteStatus || "待刷新") : "本地估值";
+    const fundStatus = fundQuotePresentation(item);
+    quote.className = `quote-status${fundStatus.pending ? " pending" : (quoteSucceeded ? " ok" : "")}`;
+    quote.textContent = item.pricingMode === "auto" ? fundStatus.text : "本地估值";
     if (item.pricingMode === "auto") {
       const calibration = fundUsesEstimatedShares(item) && item.fundCalibratedAt
         ? `校准 ${String(item.fundCalibratedAt).slice(0, 10)} · ${holdingUsesFundNav(item) ? "净值" : "价格"} ${formatQuotePrice(item.fundCalibrationNav, item.currency)}`
         : "";
-      const details = [item.resolvedQuoteId, calibration, item.quoteError].filter(Boolean).join(" · ");
+      const navDate = holdingUsesFundNav(item) && fundNavDate(item) ? `净值日期 ${fundNavDate(item)}` : "";
+      const details = [item.resolvedQuoteId, navDate, calibration, item.quoteError].filter(Boolean).join(" · ");
       if (details) quote.title = details;
     }
     appendCell(row, "行情", quote);
@@ -1828,9 +1861,12 @@
 
     const automatic = group.rows.filter(({ item }) => item.pricingMode === "auto");
     const successful = automatic.filter(({ item }) => item.quoteTime && item.quoteStatus !== "更新失败").length;
+    const pendingFunds = automatic.filter(({ item }) => fundNavDailyPending(item)).length;
     const quote = document.createElement("span");
-    quote.className = `quote-status${automatic.length && successful === automatic.length ? " ok" : ""}`;
-    quote.textContent = automatic.length ? `行情 ${successful}/${automatic.length}` : "本地估值";
+    quote.className = `quote-status${pendingFunds ? " pending" : (automatic.length && successful === automatic.length ? " ok" : "")}`;
+    quote.textContent = automatic.length
+      ? (pendingFunds ? `待净值 ${pendingFunds}/${automatic.length}` : `行情 ${successful}/${automatic.length}`)
+      : "本地估值";
     quote.title = "各项价值已按最新汇率换算为人民币";
     appendCell(row, "行情", quote);
     const actionHint = document.createElement("span");

@@ -1176,6 +1176,10 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   color: var(--green);
 }
 
+.quote-status.pending {
+  color: var(--gold);
+}
+
 .table-actions {
   display: flex;
   justify-content: flex-end;
