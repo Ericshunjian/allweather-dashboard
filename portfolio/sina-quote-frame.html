@@ -26,7 +26,7 @@
         send({ ok: false });
       }, 10000);
 
-      if (!/^(?:T|TF|TS|TL)\d{3,4}$/.test(symbol) || !requestId) {
+      if (!/^(?:T|TF|TS|TL)(?:0|\d{3,4})$/.test(symbol) || !requestId) {
         window.clearTimeout(timer);
         cleanup();
         send({ ok: false });

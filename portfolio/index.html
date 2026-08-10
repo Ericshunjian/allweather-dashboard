@@ -111,6 +111,7 @@
           <button class="filter-button" type="button" data-filter="cash">现金</button>
         </div>
       </div>
+      <p class="quote-source-note">场内基金与股票约每 5 分钟自动刷新 · 场外基金显示最新公布净值 · 国债期货显示最新日收盘</p>
       <div id="holdings-empty" class="empty-state">
         <strong>尚未录入资产</strong>
         <span>添加第一项持仓后开始计算组合。</span>
@@ -121,6 +122,7 @@
             <tr>
               <th>资产</th>
               <th>持仓</th>
+              <th>最新价</th>
               <th>当前价值</th>
               <th>风险敞口</th>
               <th>资产权重</th>
@@ -135,14 +137,36 @@
     </section>
 
     <section class="history-section">
-      <div class="section-heading">
+      <div class="section-heading history-heading">
         <div>
           <p class="eyebrow">HISTORY</p>
-          <h2>资产记录</h2>
+          <h2>资产与盈亏记录</h2>
         </div>
-        <span id="snapshot-count" class="status-pill">0个交易日</span>
+        <div class="history-actions">
+          <span id="snapshot-count" class="status-pill">0个交易日</span>
+          <button id="record-today" class="secondary-button compact-button" type="button">记录今日</button>
+        </div>
       </div>
-      <div id="history-chart" class="history-chart" aria-label="总资产历史"></div>
+      <div class="history-change-grid" aria-label="近期盈亏变化">
+        <article><span>日变动</span><strong id="history-day-change">--</strong><small id="history-day-rate">--</small></article>
+        <article><span>本周变动</span><strong id="history-week-change">--</strong><small id="history-week-rate">--</small></article>
+        <article><span>本月变动</span><strong id="history-month-change">--</strong><small id="history-month-rate">--</small></article>
+      </div>
+      <div class="history-period-row" role="group" aria-label="历史周期">
+        <button class="history-period-button active" type="button" data-period="day">日</button>
+        <button class="history-period-button" type="button" data-period="week">周</button>
+        <button class="history-period-button" type="button" data-period="month">月</button>
+      </div>
+      <div class="history-visual-grid">
+        <article class="history-panel">
+          <div class="history-panel-heading"><span>总资产走势</span><strong id="history-latest-total">--</strong></div>
+          <div id="history-chart" class="history-chart" aria-label="总资产历史"></div>
+        </article>
+        <article class="history-panel">
+          <div class="history-panel-heading"><span>期间变动</span><small>总资产差额</small></div>
+          <div id="history-delta-chart" class="history-delta-chart" aria-label="期间资产变动历史"></div>
+        </article>
+      </div>
     </section>
   </div>
 
@@ -207,7 +231,7 @@
           </select>
         </label>
         <label id="quote-id-field">行情标识
-          <input id="holding-quote-id" type="text" maxlength="50" placeholder="可选：usSPY / hk00700 / sina:T2609">
+          <input id="holding-quote-id" type="text" maxlength="50" placeholder="通常留空；可填 sh518880 / jj110011 / sina:T0">
         </label>
         <label class="quantity-field">数量 / 份额 / 手数
           <input id="holding-quantity" type="number" min="0" step="any" inputmode="decimal">

@@ -10,6 +10,7 @@
   const VAULT_AAD = "allweather-portfolio-vault-data-v1";
   const AUTH_PLAINTEXT = "allweather-portfolio-vault-unlocked-v1";
   const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+  const QUOTE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const commonUsQuotes = Object.freeze({ SPY: "usSPY", QQQ: "usQQQ" });
@@ -57,6 +58,8 @@
   let pendingEncryptedVault = null;
   let hadLocalVault = false;
   let localVaultHasUserChanges = false;
+  let historyPeriod = "day";
+  let quoteRefreshTimer = null;
 
   const $ = (id) => document.getElementById(id);
   const lockScreen = $("lock-screen");
@@ -470,6 +473,7 @@
 
   function lockVault() {
     clearTimeout(lockTimer);
+    clearInterval(quoteRefreshTimer);
     sessionKey = null;
     vault = null;
     if (syncDialog?.open) syncDialog.close();
@@ -531,6 +535,17 @@
     return Number.isFinite(Number(value))
       ? new Intl.NumberFormat("zh-CN", { maximumFractionDigits: digits }).format(Number(value))
       : "--";
+  }
+
+  function formatQuotePrice(value, currency = "CNY") {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return "--";
+    const symbol = { CNY: "¥", USD: "$", HKD: "HK$" }[currency] || `${currency} `;
+    const digits = number < 10 ? 4 : 3;
+    return `${symbol}${new Intl.NumberFormat("zh-CN", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: digits
+    }).format(number)}`;
   }
 
   function numeric(value, fallback = 0) {
@@ -624,17 +639,32 @@
     const explicit = String(item.quoteId || "").trim();
     if (explicit) {
       if (/^(?:tencent|sina):/i.test(explicit)) return explicit;
-      return `tencent:${explicit}`;
+      if (/^(?:sh|sz|hk|us|jj|wh)\w+/i.test(explicit)) return `tencent:${explicit}`;
+      if (item.assetType === "futures" && /^(?:T|TF|TS|TL)(?:0|\d{3,4})(?:\.CFE)?$/i.test(explicit)) {
+        return `sina:${explicit.replace(/\.CFE$/i, "").toUpperCase()}`;
+      }
+      return inferQuoteId({ ...item, quoteId: "", code: explicit });
     }
     let code = String(item.code || "").trim().toUpperCase();
     if (!code) return "";
     if (item.assetType === "futures") {
       let futuresCode = code.replace(/\.CFE$/i, "");
       if (/^(?:T|TF|TS|TL)$/.test(futuresCode)) futuresCode += "0";
-      return `sina:${futuresCode}`;
+      return /^(?:T|TF|TS|TL)(?:0|\d{3,4})$/.test(futuresCode) ? `sina:${futuresCode}` : "";
     }
     if (item.assetType === "option") return "";
-    if (item.assetType === "fund" && /^\d{6}$/.test(code)) return `tencent:jj${code}`;
+    if (item.assetType === "fund") {
+      code = code.replace(/\.OF$/i, "");
+      if (/^5\d{5}$/.test(code)) return `tencent:sh${code}`;
+      if (/^1[568]\d{4}$/.test(code)) return `tencent:sz${code}`;
+      if (/^\d{6}$/.test(code)) return `tencent:jj${code}`;
+    }
+    const mainlandMatch = code.match(/^(\d{6})\.(SH|SZ)$/i);
+    if (mainlandMatch) return `tencent:${mainlandMatch[2].toLowerCase()}${mainlandMatch[1]}`;
+    const usMatch = code.match(/^([A-Z][A-Z0-9.-]{0,14})\.US$/i);
+    if (usMatch) return `tencent:us${usMatch[1]}`;
+    if (/^[569]\d{5}$/.test(code)) return `tencent:sh${code}`;
+    if (/^[0123]\d{5}$/.test(code)) return `tencent:sz${code}`;
     if (commonUsQuotes[code]) return `tencent:${commonUsQuotes[code]}`;
     if (/^[A-Z][A-Z0-9.-]{0,14}$/.test(code)) return `tencent:us${code}`;
     if (code.endsWith(".HK")) code = code.slice(0, -3).padStart(5, "0");
@@ -673,14 +703,19 @@
     const isFund = symbol.toLowerCase().startsWith("jj");
     const isForex = symbol.toLowerCase().startsWith("wh");
     const price = numeric(isFund ? fields[5] : fields[3], NaN);
-    const previousClose = numeric(isFund ? fields[5] : (isForex ? fields[6] : fields[4]), price);
+    const fundChangeRate = numeric(fields[7], NaN);
+    const fundPrevious = Number.isFinite(fundChangeRate) && Math.abs(1 + fundChangeRate / 100) > 1e-8
+      ? price / (1 + fundChangeRate / 100)
+      : price;
+    const previousClose = numeric(isFund ? fundPrevious : (isForex ? fields[6] : fields[4]), price);
     const timeValue = isFund ? fields[8] : (isForex ? fields[5] : fields[30]);
     if (!Number.isFinite(price) || price <= 0) throw new Error("无有效收盘价");
     return {
       price,
       previousClose: Number.isFinite(previousClose) && previousClose > 0 ? previousClose : price,
       name: String(fields[1] || fields[2] || symbol),
-      quoteTime: parseTencentTimestamp(timeValue)
+      quoteTime: parseTencentTimestamp(timeValue),
+      quoteLabel: isFund ? "基金净值" : (isForex ? "汇率" : "实时行情")
     };
   }
 
@@ -718,7 +753,8 @@
           price,
           previousClose: numeric(previous?.c, price),
           name: symbol.toUpperCase(),
-          quoteTime: parseTencentTimestamp(latest.d)
+          quoteTime: parseTencentTimestamp(latest.d),
+          quoteLabel: "最新收盘"
         });
       };
       window.addEventListener("message", onMessage);
@@ -776,7 +812,9 @@
       const quoteId = inferQuoteId(item);
       attempted += 1;
       if (!quoteId) {
-        item.quoteStatus = "需填写行情标识";
+        item.quoteStatus = "代码不支持";
+        item.quoteError = "请检查资产类型和代码，或填写行情标识";
+        item.resolvedQuoteId = "";
         return;
       }
       try {
@@ -785,10 +823,14 @@
         item.previousClose = quote.previousClose;
         item.quoteName = quote.name;
         item.quoteTime = quote.quoteTime;
-        item.quoteStatus = "已更新";
+        item.quoteStatus = quote.quoteLabel || "已更新";
+        item.quoteError = "";
+        item.resolvedQuoteId = quoteId;
         success += 1;
       } catch (error) {
-        item.quoteStatus = "行情暂不可用";
+        item.quoteStatus = "更新失败";
+        item.quoteError = error?.message || "行情接口暂不可用";
+        item.resolvedQuoteId = quoteId;
       }
     }));
 
@@ -800,14 +842,31 @@
     if (!options.silent) showToast(`行情更新完成：${success}/${attempted}`);
   }
 
-  async function recordSnapshot() {
+  function startQuoteAutoRefresh() {
+    clearInterval(quoteRefreshTimer);
+    quoteRefreshTimer = setInterval(() => {
+      if (document.visibilityState === "visible" && sessionKey && !$("refresh-quotes").disabled) {
+        refreshQuotes({ silent: true });
+      }
+    }, QUOTE_REFRESH_INTERVAL_MS);
+  }
+
+  async function recordSnapshot(options = {}) {
     const metrics = portfolioMetrics();
-    if (!(metrics.totalAssets > 0)) return;
+    if (!(metrics.totalAssets > 0)) {
+      if (options.notify) showToast("暂无可记录的总资产");
+      return;
+    }
     const date = chinaDate();
+    const previousSnapshot = vault.snapshots
+      .filter((item) => item?.date && item.date < date && Number.isFinite(Number(item.totalAssets)))
+      .sort((left, right) => left.date.localeCompare(right.date))
+      .at(-1);
     const snapshot = {
       date,
       totalAssets: metrics.totalAssets,
-      dailyPnl: metrics.dailyPnl,
+      dailyPnl: previousSnapshot ? metrics.totalAssets - numeric(previousSnapshot.totalAssets) : metrics.dailyPnl,
+      marketDailyPnl: metrics.dailyPnl,
       grossExposure: metrics.grossExposure
     };
     const existingIndex = vault.snapshots.findIndex((item) => item.date === date);
@@ -819,6 +878,7 @@
       .slice(-750);
     await persistVault();
     renderHistory();
+    if (options.notify) showToast(`已记录 ${date} 总资产`);
   }
 
   function setSignedClass(element, value) {
@@ -837,7 +897,7 @@
     $("included-count").textContent = `${metrics.includedCount}项计入净资产`;
     $("derivative-count").textContent = `${metrics.derivativeCount}项衍生品`;
     const automatic = vault.holdings.filter((item) => item.pricingMode === "auto");
-    const covered = automatic.filter((item) => item.quoteStatus === "已更新").length;
+    const covered = automatic.filter((item) => item.quoteTime && item.quoteStatus !== "更新失败").length;
     $("quote-coverage").textContent = `行情覆盖 ${covered}/${automatic.length}`;
     const latestTimes = vault.holdings.map((item) => item.quoteTime).filter(Boolean).sort();
     $("valuation-time").textContent = latestTimes.length
@@ -974,6 +1034,10 @@
       if (["fixed", "interest"].includes(item.pricingMode)) positionText = formatNative(accruedFixedValue(item), item.currency);
       else positionText = `${formatNumber(item.quantity)} ${calc.derivative ? "手" : "份"}`;
       appendCell(row, "持仓", positionText);
+      const latestPrice = ["fixed", "interest"].includes(item.pricingMode)
+        ? "--"
+        : formatQuotePrice(item.price, item.currency);
+      appendCell(row, "最新价", latestPrice);
       appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
       appendCell(row, "风险敞口", formatMoney(calc.exposureCny));
       appendCell(row, "资产权重", metrics.totalAssets > 0 && item.includeNav ? formatPercent(calc.valueCny / metrics.totalAssets) : "--");
@@ -981,8 +1045,13 @@
       setSignedClass(pnlCell, calc.pnlCny);
 
       const quote = document.createElement("span");
-      quote.className = `quote-status${item.quoteStatus === "已更新" ? " ok" : ""}`;
+      const quoteSucceeded = item.quoteTime && item.quoteStatus !== "更新失败";
+      quote.className = `quote-status${quoteSucceeded ? " ok" : ""}`;
       quote.textContent = item.pricingMode === "auto" ? (item.quoteStatus || "待刷新") : "本地估值";
+      if (item.pricingMode === "auto") {
+        const details = [item.resolvedQuoteId, item.quoteError].filter(Boolean).join(" · ");
+        if (details) quote.title = details;
+      }
       appendCell(row, "行情", quote);
 
       const actions = document.createElement("div");
@@ -1005,29 +1074,171 @@
     });
   }
 
-  function renderHistory() {
+  function sortedSnapshots() {
+    return (vault?.snapshots || [])
+      .filter((item) => item?.date && Number.isFinite(Number(item.totalAssets)))
+      .sort((left, right) => left.date.localeCompare(right.date));
+  }
+
+  function weekStart(dateText) {
+    const date = new Date(`${dateText}T00:00:00Z`);
+    const offset = (date.getUTCDay() + 6) % 7;
+    date.setUTCDate(date.getUTCDate() - offset);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function periodKey(dateText, period) {
+    if (period === "month") return dateText.slice(0, 7);
+    if (period === "week") return weekStart(dateText);
+    return dateText;
+  }
+
+  function periodLabel(key, period) {
+    if (period === "month") return key.slice(2).replace("-", "/");
+    if (period === "week") return `${key.slice(5).replace("-", "/")}周`;
+    return key.slice(5).replace("-", "/");
+  }
+
+  function aggregateSnapshots(snapshots, period) {
+    const groups = new Map();
+    snapshots.forEach((snapshot) => groups.set(periodKey(snapshot.date, period), snapshot));
+    const limits = { day: 90, week: 52, month: 36 };
+    return [...groups.entries()].map(([key, snapshot], index, entries) => {
+      const previous = index > 0 ? entries[index - 1][1] : null;
+      return {
+        key,
+        label: periodLabel(key, period),
+        date: snapshot.date,
+        totalAssets: numeric(snapshot.totalAssets),
+        change: previous ? numeric(snapshot.totalAssets) - numeric(previous.totalAssets) : null
+      };
+    }).slice(-limits[period]);
+  }
+
+  function changeFromBaseline(snapshots, startDate, fallbackPrevious = false) {
+    if (!snapshots.length) return null;
+    const latest = snapshots.at(-1);
+    let baseline = snapshots.filter((item) => item.date < startDate).at(-1);
+    if (!baseline && fallbackPrevious && snapshots.length > 1) baseline = snapshots.at(-2);
+    if (!baseline) return null;
+    const baseValue = numeric(baseline.totalAssets);
+    const change = numeric(latest.totalAssets) - baseValue;
+    return { change, rate: baseValue ? change / baseValue : null };
+  }
+
+  function setHistoryChange(id, result) {
+    const value = $(`history-${id}-change`);
+    const rate = $(`history-${id}-rate`);
+    value.textContent = result ? formatMoney(result.change) : "--";
+    rate.textContent = result && Number.isFinite(result.rate) ? formatPercent(result.rate, 2) : "--";
+    setSignedClass(value, result?.change || 0);
+    setSignedClass(rate, result?.change || 0);
+  }
+
+  function createSvgNode(name, attributes = {}, text = "") {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+    Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, String(value)));
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  function renderAssetLine(points) {
     const chart = $("history-chart");
     chart.replaceChildren();
-    const snapshots = (vault?.snapshots || []).slice(-120);
-    $("snapshot-count").textContent = `${snapshots.length}个交易日`;
-    if (snapshots.length < 2) {
+    if (points.length < 2) {
       const empty = document.createElement("div");
       empty.className = "history-empty";
       empty.textContent = "产生两个以上日终记录后显示走势";
       chart.appendChild(empty);
       return;
     }
-    const values = snapshots.map((item) => numeric(item.totalAssets));
-    const minimum = Math.min(...values);
-    const maximum = Math.max(...values);
-    const range = Math.max(maximum - minimum, maximum * 0.02, 1);
-    snapshots.forEach((snapshot) => {
-      const column = document.createElement("span");
-      column.className = "history-column";
-      column.style.height = `${18 + (numeric(snapshot.totalAssets) - minimum) / range * 82}%`;
-      column.title = `${snapshot.date} ${formatMoney(snapshot.totalAssets)}`;
+    const width = 760;
+    const height = 240;
+    const padding = { left: 16, right: 16, top: 18, bottom: 30 };
+    const values = points.map((point) => point.totalAssets);
+    const rawMin = Math.min(...values);
+    const rawMax = Math.max(...values);
+    const margin = Math.max((rawMax - rawMin) * 0.12, rawMax * 0.006, 1);
+    const minimum = rawMin - margin;
+    const maximum = rawMax + margin;
+    const range = Math.max(maximum - minimum, 1);
+    const x = (index) => padding.left + index / (points.length - 1) * (width - padding.left - padding.right);
+    const y = (value) => padding.top + (maximum - value) / range * (height - padding.top - padding.bottom);
+    const path = points.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(point.totalAssets).toFixed(2)}`).join(" ");
+    const area = `${path} L${x(points.length - 1)},${height - padding.bottom} L${x(0)},${height - padding.bottom} Z`;
+    const svg = createSvgNode("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "总资产走势折线图" });
+    const defs = createSvgNode("defs");
+    const gradient = createSvgNode("linearGradient", { id: "history-area-gradient", x1: "0", y1: "0", x2: "0", y2: "1" });
+    gradient.append(
+      createSvgNode("stop", { offset: "0%", "stop-color": "#24679c", "stop-opacity": "0.22" }),
+      createSvgNode("stop", { offset: "100%", "stop-color": "#24679c", "stop-opacity": "0.01" })
+    );
+    defs.appendChild(gradient);
+    svg.appendChild(defs);
+    [0.25, 0.5, 0.75].forEach((ratio) => {
+      const gridY = padding.top + ratio * (height - padding.top - padding.bottom);
+      svg.appendChild(createSvgNode("line", { x1: padding.left, x2: width - padding.right, y1: gridY, y2: gridY, class: "history-grid-line" }));
+    });
+    svg.appendChild(createSvgNode("path", { d: area, fill: "url(#history-area-gradient)" }));
+    svg.appendChild(createSvgNode("path", { d: path, class: "history-line-path" }));
+    if (points.length <= 32) {
+      points.forEach((point, index) => {
+        const dot = createSvgNode("circle", { cx: x(index), cy: y(point.totalAssets), r: 3, class: "history-line-dot" });
+        dot.appendChild(createSvgNode("title", {}, `${point.date} ${formatMoney(point.totalAssets)}`));
+        svg.appendChild(dot);
+      });
+    }
+    svg.append(
+      createSvgNode("text", { x: padding.left, y: height - 8, class: "history-axis-label" }, points[0].label),
+      createSvgNode("text", { x: width - padding.right, y: height - 8, "text-anchor": "end", class: "history-axis-label" }, points.at(-1).label)
+    );
+    chart.appendChild(svg);
+  }
+
+  function renderDeltaBars(points) {
+    const chart = $("history-delta-chart");
+    chart.replaceChildren();
+    const changes = points.filter((point) => Number.isFinite(point.change));
+    if (!changes.length) {
+      const empty = document.createElement("div");
+      empty.className = "history-empty";
+      empty.textContent = "下一条记录产生后显示资产变动";
+      chart.appendChild(empty);
+      return;
+    }
+    const maximum = Math.max(...changes.map((point) => Math.abs(point.change)), 1);
+    const axis = document.createElement("span");
+    axis.className = "history-delta-axis";
+    chart.appendChild(axis);
+    changes.forEach((point, index) => {
+      const column = document.createElement("div");
+      column.className = "history-delta-column";
+      column.title = `${point.label} ${formatMoney(point.change)}`;
+      const track = document.createElement("div");
+      track.className = "history-delta-track";
+      const bar = document.createElement("span");
+      bar.className = `history-delta-bar ${point.change >= 0 ? "positive" : "negative"}`;
+      bar.style.height = `${Math.max(3, Math.abs(point.change) / maximum * 46)}%`;
+      track.appendChild(bar);
+      const label = document.createElement("small");
+      const labelEvery = Math.max(1, Math.ceil(changes.length / 6));
+      label.textContent = index % labelEvery === 0 || index === changes.length - 1 ? point.label : "";
+      column.append(track, label);
       chart.appendChild(column);
     });
+  }
+
+  function renderHistory() {
+    const snapshots = sortedSnapshots();
+    $("snapshot-count").textContent = `${snapshots.length}个交易日`;
+    $("history-latest-total").textContent = snapshots.length ? formatMoney(snapshots.at(-1).totalAssets) : "--";
+    const latestDate = snapshots.at(-1)?.date;
+    setHistoryChange("day", latestDate ? changeFromBaseline(snapshots, latestDate, true) : null);
+    setHistoryChange("week", latestDate ? changeFromBaseline(snapshots, weekStart(latestDate)) : null);
+    setHistoryChange("month", latestDate ? changeFromBaseline(snapshots, `${latestDate.slice(0, 7)}-01`) : null);
+    const points = aggregateSnapshots(snapshots, historyPeriod);
+    renderAssetLine(points);
+    renderDeltaBars(points);
   }
 
   function renderAll() {
@@ -1275,6 +1486,7 @@
       try { await synchronizeVault({ silent: true }); } catch (error) { /* Local vault remains available offline. */ }
     }
     refreshQuotes({ silent: true });
+    startQuoteAutoRefresh();
   }
 
   async function handleSyncSignIn(event) {
@@ -1388,6 +1600,17 @@
       activeFilter = button.dataset.filter;
       document.querySelectorAll(".filter-button").forEach((node) => node.classList.toggle("active", node === button));
       renderHoldings(portfolioMetrics());
+    });
+  });
+
+  $("record-today").addEventListener("click", () => recordSnapshot({ notify: true }));
+  document.querySelectorAll(".history-period-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      historyPeriod = button.dataset.period;
+      document.querySelectorAll(".history-period-button").forEach((node) => {
+        node.classList.toggle("active", node === button);
+      });
+      renderHistory();
     });
   });
 
