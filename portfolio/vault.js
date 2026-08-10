@@ -1735,32 +1735,35 @@
     const detailsByUnderlying = new Map();
     group.rows.forEach(({ item: holding, calc }) => {
       const identity = dailyContributionIdentity(holding, group.label);
-      const detailItem = detailsByUnderlying.get(identity.key) || { ...identity, value: 0, estimated: false, usQdii: false };
+      const detailItem = detailsByUnderlying.get(identity.key) || { ...identity, value: 0, estimated: false, usQdii: false, pending: false };
       detailItem.value += calc.dailyPnlCny;
       detailItem.estimated ||= calc.dailyPnlEstimated;
       detailItem.usQdii ||= Boolean(calc.intradayProxyMove?.usQdii);
+      detailItem.pending ||= calc.dailyPnlPending;
       detailsByUnderlying.set(identity.key, detailItem);
     });
     return [...detailsByUnderlying.values()]
-      .filter((item) => group.value > 0 ? item.value > 0 : item.value < 0)
-      .sort((left, right) => group.value > 0 ? right.value - left.value : left.value - right.value)
+      .filter((item) => group.value > 0 ? item.value > 0 : (group.value < 0 ? item.value < 0 : true))
+      .sort((left, right) => group.value > 0 ? right.value - left.value : (group.value < 0 ? left.value - right.value : Number(right.pending) - Number(left.pending)))
       .slice(0, 5);
   }
 
   function createDailyContributionDetails(group, panelId) {
     const positive = group.value > 0;
-    const directionLabel = positive ? "盈利" : "亏损";
+    const negative = group.value < 0;
+    const neutral = !positive && !negative;
+    const directionLabel = positive ? "盈利" : (negative ? "亏损" : (group.pending ? "待净值" : "当日"));
     const details = dailyContributionDetails(group);
     const directionalTotal = details.reduce((sum, item) => sum + Math.abs(item.value), 0);
     const panel = document.createElement("div");
     panel.id = panelId;
     panel.className = "daily-contribution-details";
     panel.setAttribute("role", "region");
-    panel.setAttribute("aria-label", `${group.label}${directionLabel}贡献前五品种`);
+    panel.setAttribute("aria-label", `${group.label}${neutral ? "资产明细" : `${directionLabel}贡献前五品种`}`);
     const heading = document.createElement("div");
     heading.className = "daily-contribution-details-heading";
     const title = document.createElement("strong");
-    title.textContent = `${directionLabel}贡献前五品种`;
+    title.textContent = neutral ? `${group.label}资产明细` : `${directionLabel}贡献前五品种`;
     const mergeNote = document.createElement("span");
     mergeNote.textContent = "同品种跨平台合并";
     heading.append(title, mergeNote);
@@ -1777,19 +1780,26 @@
       label.textContent = detail.label;
       label.title = detail.label;
       const share = document.createElement("small");
-      share.textContent = directionalTotal > 0
+      share.textContent = detail.pending
+        ? "等待当日净值"
+        : (directionalTotal > 0
         ? `${detail.estimated ? `${detail.usQdii ? "美股上一交易日" : "盘中参考"} · ` : ""}占所列${directionLabel}贡献 ${formatPercent(Math.abs(detail.value) / directionalTotal)}`
-        : directionLabel;
+        : "当日暂无变动");
       identity.append(label, share);
       const value = document.createElement("strong");
-      value.className = detail.value > 0 ? "positive" : "negative";
-      value.textContent = `${detail.estimated ? "估 " : ""}${detail.value > 0 ? `+${formatMoney(detail.value)}` : formatMoney(detail.value)}`;
+      if (detail.value > 0) value.className = "positive";
+      else if (detail.value < 0) value.className = "negative";
+      value.textContent = detail.pending
+        ? "待净值"
+        : `${detail.estimated ? "估 " : ""}${detail.value > 0 ? `+${formatMoney(detail.value)}` : formatMoney(detail.value)}`;
       listItem.append(rank, identity, value);
       list.appendChild(listItem);
     });
     const hint = document.createElement("p");
     hint.className = "daily-contribution-details-hint";
-    hint.textContent = "仅显示同方向贡献最大的五个品种";
+    hint.textContent = neutral && group.pending
+      ? "黄金不使用盘中估值；当日净值更新后显示贡献"
+      : "仅显示同方向贡献最大的五个品种";
     panel.append(heading, list, hint);
     return panel;
   }
@@ -1801,11 +1811,12 @@
     metrics.rows.forEach((row) => {
       const category = dailyContributionClassification(row.item);
       const groupKey = `daily:${category.key}`;
-      const current = grouped.get(groupKey) || { ...category, key: groupKey, value: 0, rows: [], estimated: false };
+      const current = grouped.get(groupKey) || { ...category, key: groupKey, value: 0, rows: [], estimated: false, pending: false };
       current.rows.push(row);
       const { calc } = row;
       current.value += calc.dailyPnlCny;
       current.estimated ||= calc.dailyPnlEstimated;
+      current.pending ||= calc.dailyPnlPending;
       grouped.set(groupKey, current);
     });
     const contributions = [...grouped.values()].filter((item) => Math.abs(item.value) >= 0.005);
@@ -1818,6 +1829,8 @@
       .sort((left, right) => left.value - right.value)
       .slice(0, 3);
     const selected = [...gains, ...losses];
+    const gold = grouped.get("daily:gold");
+    if (gold && !selected.some((item) => item.key === gold.key)) selected.push(gold);
     if (!selected.length) {
       const empty = document.createElement("div");
       empty.className = "daily-contribution-empty";
@@ -1848,7 +1861,8 @@
       row.classList.toggle("is-expanded", expanded);
       row.setAttribute("aria-expanded", String(expanded));
       row.setAttribute("aria-controls", panelId);
-      row.title = `${expanded ? "收起" : "展开"}${item.label}${item.value > 0 ? "盈利" : "亏损"}贡献前五品种`;
+      const movementLabel = item.value > 0 ? "盈利贡献" : (item.value < 0 ? "亏损贡献" : (item.pending ? "待净值" : "暂无变动"));
+      row.title = `${expanded ? "收起" : "展开"}${item.label}${movementLabel}明细`;
       const labelWrap = document.createElement("span");
       labelWrap.className = "daily-contribution-label-wrap";
       const chevron = document.createElement("span");
@@ -1862,14 +1876,16 @@
       const track = document.createElement("div");
       track.className = "daily-contribution-track";
       const bar = document.createElement("span");
-      const direction = item.value > 0 ? "positive" : "negative";
+      const direction = item.value > 0 ? "positive" : (item.value < 0 ? "negative" : "neutral");
       bar.className = `daily-contribution-bar ${direction}`;
       bar.style.width = `${Math.abs(item.value) / maxAbsolute * 50}%`;
       track.appendChild(bar);
       const value = document.createElement("strong");
       value.className = `daily-contribution-value ${direction}`;
-      value.textContent = `${item.estimated ? "估 " : ""}${item.value > 0 ? `+${formatMoney(item.value)}` : formatMoney(item.value)}`;
-      row.setAttribute("aria-label", `${item.label} ${item.value > 0 ? "盈利贡献" : "亏损贡献"}${value.textContent}`);
+      value.textContent = item.pending
+        ? "待净值"
+        : `${item.estimated ? "估 " : ""}${item.value > 0 ? `+${formatMoney(item.value)}` : formatMoney(item.value)}`;
+      row.setAttribute("aria-label", `${item.label} ${movementLabel} ${value.textContent}`);
       row.append(labelWrap, track, value);
       row.addEventListener("click", () => {
         if (expanded) expandedDailyContributionGroups.delete(item.key);
@@ -1960,7 +1976,9 @@
     const known = knownUnderlyingIdentity(item);
     if (known) return known;
     const explicit = String(item.underlyingName || "").trim();
-    if (explicit) return { key: `underlying:${normalizedGroupToken(explicit)}`, label: explicit };
+    if (explicit && !/^(?:AH股|美股|港股|国内权益)$/i.test(explicit)) {
+      return { key: `underlying:${normalizedGroupToken(explicit)}`, label: explicit };
+    }
 
     const code = normalizedGroupToken(item.code);
     if (code) return { key: `code:${code}`, label: item.name || item.code };
@@ -2004,24 +2022,33 @@
     };
 
     if (mode === "underlying") {
-      const usRows = rows.filter(({ item }) => marketClassification(item).key === "us-equity");
-      const otherRows = rows.filter(({ item }) => marketClassification(item).key !== "us-equity");
+      const marketParents = [
+        { key: "ah-equity", label: "AH股" },
+        { key: "us-equity", label: "美股" }
+      ];
+      const parentKeyForRow = ({ item }) => {
+        const key = dailyContributionClassification(item).key;
+        return marketParents.some((parent) => parent.key === key) ? key : "";
+      };
+      const otherRows = rows.filter((row) => !parentKeyForRow(row));
       const entries = buildGroups(otherRows);
-      if (usRows.length) {
-        const children = buildGroups(usRows).map((group) => ({
+      marketParents.forEach((parent) => {
+        const parentRows = rows.filter((row) => parentKeyForRow(row) === parent.key);
+        if (!parentRows.length) return;
+        const children = buildGroups(parentRows).map((group) => ({
           ...group,
-          alwaysGroup: group.alwaysGroup || ["标普500", "纳斯达克100"].includes(group.label)
+          alwaysGroup: group.alwaysGroup || ["沪深300", "中证A500", "标普500", "纳斯达克100"].includes(group.label)
         }));
         entries.push({
-          key: "underlying-market:us-equity",
-          label: "美股",
-          rows: usRows,
-          index: rows.indexOf(usRows[0]),
+          key: `underlying-market:${parent.key}`,
+          label: parent.label,
+          rows: parentRows,
+          index: rows.indexOf(parentRows[0]),
           mode,
           alwaysGroup: true,
           children
         });
-      }
+      });
       return entries.sort((left, right) => rows.indexOf(left.rows[0]) - rows.indexOf(right.rows[0]));
     }
 
