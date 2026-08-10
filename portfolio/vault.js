@@ -1949,10 +1949,10 @@
   }
 
   function holdingGroupIdentity(item) {
-    const explicit = String(item.underlyingName || "").trim();
-    if (explicit) return { key: `underlying:${normalizedGroupToken(explicit)}`, label: explicit };
     const known = knownUnderlyingIdentity(item);
     if (known) return known;
+    const explicit = String(item.underlyingName || "").trim();
+    if (explicit) return { key: `underlying:${normalizedGroupToken(explicit)}`, label: explicit };
 
     const code = normalizedGroupToken(item.code);
     if (code) return { key: `code:${code}`, label: item.name || item.code };
@@ -1981,18 +1981,43 @@
   }
 
   function holdingPresentationEntries(rows, mode = "underlying") {
-    const grouped = new Map();
-    rows.forEach((row, index) => {
-      const identity = presentationGroupIdentity(row.item, mode);
-      if (!identity) {
-        grouped.set(`item:${row.item.id}`, { key: `item:${row.item.id}`, label: row.item.name, rows: [row], index, mode });
-        return;
+    const buildGroups = (sourceRows) => {
+      const grouped = new Map();
+      sourceRows.forEach((row, index) => {
+        const identity = presentationGroupIdentity(row.item, mode);
+        if (!identity) {
+          grouped.set(`item:${row.item.id}`, { key: `item:${row.item.id}`, label: row.item.name, rows: [row], index, mode });
+          return;
+        }
+        if (!grouped.has(identity.key)) grouped.set(identity.key, { ...identity, rows: [], index, mode });
+        grouped.get(identity.key).rows.push(row);
+      });
+      return [...grouped.values()];
+    };
+
+    if (mode === "underlying") {
+      const usRows = rows.filter(({ item }) => marketClassification(item).key === "us-equity");
+      const otherRows = rows.filter(({ item }) => marketClassification(item).key !== "us-equity");
+      const entries = buildGroups(otherRows);
+      if (usRows.length) {
+        const children = buildGroups(usRows).map((group) => ({
+          ...group,
+          alwaysGroup: group.alwaysGroup || ["标普500", "纳斯达克100"].includes(group.label)
+        }));
+        entries.push({
+          key: "underlying-market:us-equity",
+          label: "美股",
+          rows: usRows,
+          index: rows.indexOf(usRows[0]),
+          mode,
+          alwaysGroup: true,
+          children
+        });
       }
-      if (!grouped.has(identity.key)) grouped.set(identity.key, { ...identity, rows: [], index, mode });
-      grouped.get(identity.key).rows.push(row);
-    });
-    const entries = [...grouped.values()];
-    if (mode === "underlying") return entries.sort((left, right) => left.index - right.index);
+      return entries.sort((left, right) => rows.indexOf(left.rows[0]) - rows.indexOf(right.rows[0]));
+    }
+
+    const entries = buildGroups(rows);
     return entries.sort((left, right) => {
       if (left.unassigned !== right.unassigned) return left.unassigned ? 1 : -1;
       const total = (group) => group.rows.reduce((sum, { item, calc }) => {
@@ -2020,7 +2045,8 @@
 
   function createHoldingRow({ item, calc }, metrics, options = {}) {
     const row = document.createElement("tr");
-    if (options.child) row.className = "holding-child-row";
+    if (options.child) row.classList.add("holding-child-row");
+    if (options.grandchild) row.classList.add("holding-grandchild-row");
     appendCell(row, "资产", createHoldingIdentity(item));
 
     let positionText;
@@ -2100,10 +2126,11 @@
     return row;
   }
 
-  function createHoldingGroupRow(group, metrics) {
+  function createHoldingGroupRow(group, metrics, options = {}) {
     const expanded = expandedHoldingGroups.has(group.key);
     const row = document.createElement("tr");
     row.className = `holding-group-row${expanded ? " is-expanded" : ""}`;
+    if (options.child) row.classList.add("holding-subgroup-row");
     row.dataset.groupKey = group.key;
 
     const toggle = document.createElement("button");
@@ -2188,6 +2215,21 @@
     $("holdings-empty").hidden = vault.holdings.length > 0;
     $("holdings-table-wrap").hidden = vault.holdings.length === 0;
     holdingPresentationEntries(visible, holdingGroupingMode).forEach((group) => {
+      if (group.children) {
+        body.appendChild(createHoldingGroupRow(group, metrics));
+        if (!expandedHoldingGroups.has(group.key)) return;
+        group.children.forEach((childGroup) => {
+          if (!childGroup.alwaysGroup && childGroup.rows.length < 2) {
+            body.appendChild(createHoldingRow(childGroup.rows[0], metrics, { child: true }));
+            return;
+          }
+          body.appendChild(createHoldingGroupRow(childGroup, metrics, { child: true }));
+          if (expandedHoldingGroups.has(childGroup.key)) {
+            childGroup.rows.forEach((holding) => body.appendChild(createHoldingRow(holding, metrics, { child: true, grandchild: true })));
+          }
+        });
+        return;
+      }
       if (!group.alwaysGroup && group.rows.length < 2) {
         body.appendChild(createHoldingRow(group.rows[0], metrics));
         return;

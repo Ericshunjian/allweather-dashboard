@@ -1162,6 +1162,15 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   font-weight: 700;
 }
 
+.holding-subgroup-row td:first-child {
+  padding-left: 26px;
+  border-left: 2px solid #d9e4eb;
+}
+
+.holding-grandchild-row td:first-child {
+  padding-left: 54px;
+}
+
 .quote-status {
   display: inline-block;
   max-width: 100%;
@@ -1988,6 +1997,14 @@ dialog::backdrop {
   .holding-child-row td:first-child {
     padding-left: 14px;
     border-left: 2px solid #d9e4eb;
+  }
+
+  .holding-subgroup-row td:first-child {
+    padding-left: 14px;
+  }
+
+  .holding-grandchild-row td:first-child {
+    padding-left: 28px;
   }
 
   .transactions-table,
