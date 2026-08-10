@@ -579,11 +579,14 @@
     }
     if (fundNavDailyPending(item)) {
       const proxyMove = currentIntradayProxyMove(item);
+      const publishedRate = numeric(item.quoteDailyChangeRate, NaN);
       return {
         text: proxyMove
           ? `${proxyMove.referenceLabel} · ${proxyMove.name} ${(proxyMove.rate * 100).toFixed(2)}% · 净值 ${navDate}`
+          : Number.isFinite(publishedRate)
+            ? `最近净值 ${navDate} · 日涨跌 ${formatPercent(publishedRate, 2)}${fundUsesEstimatedShares(item) ? " · 估算份额" : ""}`
           : `待更新 · 净值 ${navDate}${fundUsesEstimatedShares(item) ? " · 估算份额" : ""}`,
-        pending: true
+        pending: !Number.isFinite(publishedRate)
       };
     }
     const publishedRate = numeric(item.quoteDailyChangeRate, NaN);
@@ -764,16 +767,23 @@
     }
 
     const navDailyPending = fundNavDailyPending(item);
-    const publishedFundDailyRate = holdingUsesFundNav(item) && !navDailyPending
+    const intradayProxyMove = navDailyPending ? currentIntradayProxyMove(item) : null;
+    const publishedFundDailyRate = holdingUsesFundNav(item)
       ? numeric(item.quoteDailyChangeRate, NaN)
       : NaN;
-    if (Number.isFinite(publishedFundDailyRate) && Math.abs(1 + publishedFundDailyRate) > 1e-8) {
+    const carryPublishedFundMove = navDailyPending
+      && !intradayProxyMove
+      && Boolean(fundNavDate(item))
+      && Number.isFinite(publishedFundDailyRate);
+    if ((!navDailyPending || carryPublishedFundMove)
+      && Number.isFinite(publishedFundDailyRate)
+      && Math.abs(1 + publishedFundDailyRate) > 1e-8) {
       const publishedPreviousNav = price / (1 + publishedFundDailyRate);
       nativeDailyPnl = quantity * (price - publishedPreviousNav) * multiplier;
     }
-    const intradayProxyMove = navDailyPending ? currentIntradayProxyMove(item) : null;
     const dailyPnlEstimated = Boolean(intradayProxyMove);
-    const dailyPnlPending = navDailyPending && !dailyPnlEstimated;
+    const dailyPnlCarried = carryPublishedFundMove;
+    const dailyPnlPending = navDailyPending && !dailyPnlEstimated && !dailyPnlCarried;
     if (dailyPnlEstimated) nativeDailyPnl = nativeValue * intradayProxyMove.rate;
     else if (dailyPnlPending) nativeDailyPnl = 0;
 
@@ -792,6 +802,7 @@
       derivative,
       dailyPnlPending,
       dailyPnlEstimated,
+      dailyPnlCarried,
       intradayProxyMove
     };
   }
@@ -1748,9 +1759,11 @@
     const detailsByUnderlying = new Map();
     group.rows.forEach(({ item: holding, calc }) => {
       const identity = dailyContributionIdentity(holding, group.label);
-      const detailItem = detailsByUnderlying.get(identity.key) || { ...identity, value: 0, estimated: false, usQdii: false, pending: true };
+      const detailItem = detailsByUnderlying.get(identity.key) || { ...identity, value: 0, estimated: false, carried: false, navDate: "", usQdii: false, pending: true };
       detailItem.value += calc.dailyPnlCny;
       detailItem.estimated ||= calc.dailyPnlEstimated;
+      detailItem.carried ||= calc.dailyPnlCarried;
+      if (calc.dailyPnlCarried) detailItem.navDate = fundNavDate(holding);
       detailItem.usQdii ||= Boolean(calc.intradayProxyMove?.usQdii);
       detailItem.pending &&= calc.dailyPnlPending;
       detailsByUnderlying.set(identity.key, detailItem);
@@ -1795,6 +1808,8 @@
       const share = document.createElement("small");
       share.textContent = detail.pending
         ? "等待当日净值"
+        : detail.carried
+          ? `最近净值 ${detail.navDate}`
         : (directionalTotal > 0
         ? `${detail.estimated ? `${detail.usQdii ? "美股上一交易日" : "盘中参考"} · ` : ""}占所列${directionLabel}贡献 ${formatPercent(Math.abs(detail.value) / directionalTotal)}`
         : "当日暂无变动");
@@ -1824,11 +1839,12 @@
     metrics.rows.forEach((row) => {
       const category = dailyContributionClassification(row.item);
       const groupKey = `daily:${category.key}`;
-      const current = grouped.get(groupKey) || { ...category, key: groupKey, value: 0, rows: [], estimated: false, pending: true };
+      const current = grouped.get(groupKey) || { ...category, key: groupKey, value: 0, rows: [], estimated: false, carried: false, pending: true };
       current.rows.push(row);
       const { calc } = row;
       current.value += calc.dailyPnlCny;
       current.estimated ||= calc.dailyPnlEstimated;
+      current.carried ||= calc.dailyPnlCarried;
       current.pending &&= calc.dailyPnlPending;
       grouped.set(groupKey, current);
     });
@@ -2108,11 +2124,12 @@
     appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
     const dailyCell = appendCell(row, "当日变动", calc.dailyPnlPending
       ? "待净值"
-      : `${calc.dailyPnlEstimated ? "估 " : ""}${formatMoney(calc.dailyPnlCny)}`);
+      : `${calc.dailyPnlEstimated ? "估 " : (calc.dailyPnlCarried ? "净值日 " : "")}${formatMoney(calc.dailyPnlCny)}`);
     if (calc.dailyPnlPending) dailyCell.title = `最近净值日期 ${fundNavDate(item)}，当日盈亏暂不计算`;
     else {
       setSignedClass(dailyCell, calc.dailyPnlCny);
-      if (calc.dailyPnlEstimated) {
+      if (calc.dailyPnlCarried) dailyCell.title = `沿用最近公布净值 ${fundNavDate(item)} 的当日涨跌；新交易日参考行情或净值可用后自动替换`;
+      else if (calc.dailyPnlEstimated) {
         dailyCell.title = calc.intradayProxyMove.usQdii
           ? `按 ${calc.intradayProxyMove.name} 上一美股交易日涨跌 ${formatPercent(calc.intradayProxyMove.rate, 2)} 估算；正式净值公布后自动替换`
           : `按 ${calc.intradayProxyMove.name} 当日涨跌 ${formatPercent(calc.intradayProxyMove.rate, 2)} 估算；正式净值公布后自动替换`;
@@ -2221,14 +2238,16 @@
       exposure: sum.exposure + calc.exposureCny,
       pnl: sum.pnl + calc.pnlCny,
       estimatedDailyCount: sum.estimatedDailyCount + (calc.dailyPnlEstimated ? 1 : 0),
+      carriedDailyCount: sum.carriedDailyCount + (calc.dailyPnlCarried ? 1 : 0),
       pendingDailyCount: sum.pendingDailyCount + (calc.dailyPnlPending ? 1 : 0)
-    }), { value: 0, daily: 0, exposure: 0, pnl: 0, estimatedDailyCount: 0, pendingDailyCount: 0 });
+    }), { value: 0, daily: 0, exposure: 0, pnl: 0, estimatedDailyCount: 0, carriedDailyCount: 0, pendingDailyCount: 0 });
     appendCell(row, "持仓", `${group.rows.length}笔`);
     appendCell(row, "最新价", "展开查看");
     appendCell(row, "当前价值", formatMoney(totals.value));
-    const dailyCell = appendCell(row, "当日变动", `${totals.estimatedDailyCount ? "估 " : ""}${formatMoney(totals.daily)}`);
+    const dailyCell = appendCell(row, "当日变动", `${totals.estimatedDailyCount ? "估 " : (totals.carriedDailyCount ? "净值日 " : "")}${formatMoney(totals.daily)}`);
     setSignedClass(dailyCell, totals.daily);
     if (totals.estimatedDailyCount) dailyCell.title = `${totals.estimatedDailyCount}笔场外基金使用场内行情估算`;
+    else if (totals.carriedDailyCount) dailyCell.title = `${totals.carriedDailyCount}笔基金沿用最近公布净值日涨跌`;
     else if (totals.pendingDailyCount) dailyCell.title = `${totals.pendingDailyCount}笔基金等待净值或参考行情`;
     appendCell(row, "风险敞口", formatMoney(totals.exposure));
     appendCell(row, "资产权重", metrics.totalAssets > 0 ? formatPercent(totals.value / metrics.totalAssets) : "--");
