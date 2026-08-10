@@ -29,7 +29,9 @@
     "930955": "tencent:sh512890",
     "931446": "tencent:sh512890"
   });
-  const domesticFundProxyRules = Object.freeze([
+  const fundProxyRules = Object.freeze([
+    { pattern: /标普|S\s*&\s*P|(?:^|\s)(?:SPY|VOO|IVV|SPLG)(?:\.US)?(?:$|\s)/i, quoteId: "tencent:usSPY" },
+    { pattern: /纳斯达克|纳指|NASDAQ|(?:^|\s)QQQ(?:M)?(?:\.US)?(?:$|\s)/i, quoteId: "tencent:usQQQ" },
     { pattern: /中证\s*A\s*500|(?:^|\s)A500(?:$|\s)/i, quoteId: "tencent:sh000510" },
     { pattern: /沪深\s*300/i, quoteId: "tencent:sh000300" },
     { pattern: /中证\s*1000/i, quoteId: "tencent:sh000852" },
@@ -579,7 +581,7 @@
       const proxyMove = currentIntradayProxyMove(item);
       return {
         text: proxyMove
-          ? `盘中估 · ${proxyMove.name} ${(proxyMove.rate * 100).toFixed(2)}% · 净值 ${navDate}`
+          ? `${proxyMove.referenceLabel} · ${proxyMove.name} ${(proxyMove.rate * 100).toFixed(2)}% · 净值 ${navDate}`
           : `待更新 · 净值 ${navDate}${fundUsesEstimatedShares(item) ? " · 估算份额" : ""}`,
         pending: true
       };
@@ -943,6 +945,71 @@
     });
   }
 
+  function newYorkDate(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${map.year}-${map.month}-${map.day}`;
+  }
+
+  function fetchSinaUsPreviousSessionQuote(symbol) {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const iframe = document.createElement("iframe");
+      const cleanup = () => {
+        window.removeEventListener("message", onMessage);
+        iframe.remove();
+      };
+      const timer = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("美股历史行情超时"));
+      }, 12000);
+      const onMessage = (event) => {
+        if (event.source !== iframe.contentWindow || event.data?.requestId !== requestId) return;
+        window.clearTimeout(timer);
+        cleanup();
+        if (!event.data.ok) {
+          reject(new Error("美股历史行情加载失败"));
+          return;
+        }
+        const todayInNewYork = newYorkDate();
+        const excludeCurrentSession = usRegularSessionOpen();
+        const rows = (Array.isArray(event.data.rows) ? event.data.rows : [])
+          .filter((row) => row && /^\d{4}-\d{2}-\d{2}$/.test(String(row.d || "")) && numeric(row.c, NaN) > 0)
+          .filter((row) => !excludeCurrentSession || row.d !== todayInNewYork)
+          .sort((left, right) => String(left.d).localeCompare(String(right.d)));
+        const latest = rows.at(-1);
+        const previous = rows.at(-2);
+        const price = numeric(latest?.c, NaN);
+        const previousClose = numeric(previous?.c, NaN);
+        if (!(price > 0) || !(previousClose > 0)) {
+          reject(new Error("美股历史收盘价不足"));
+          return;
+        }
+        resolve({
+          price,
+          previousClose,
+          name: String(symbol || "美股参考").toUpperCase(),
+          quoteTime: new Date(`${latest.d}T12:00:00Z`).toISOString(),
+          quoteLabel: "上一交易日收盘"
+        });
+      };
+      window.addEventListener("message", onMessage);
+      iframe.hidden = true;
+      iframe.title = "美股历史行情沙箱";
+      iframe.setAttribute("sandbox", "allow-scripts");
+      iframe.referrerPolicy = "no-referrer";
+      iframe.src = `${sinaFuturesFrame}?kind=us-daily&symbol=${encodeURIComponent(symbol)}&request=${encodeURIComponent(requestId)}`;
+      document.body.appendChild(iframe);
+    });
+  }
+
   async function fetchQuote(quoteId) {
     const separator = quoteId.indexOf(":");
     const provider = separator > 0 ? quoteId.slice(0, separator).toLowerCase() : "tencent";
@@ -995,14 +1062,47 @@
       || /(?:^|:)jj\d{6}$/i.test(String(item.quoteId || item.resolvedQuoteId || inferQuoteId(item) || ""));
   }
 
-  function domesticFundIntradayEligible(item) {
-    return item.assetType === "fund"
-      && item.pricingMode === "auto"
-      && item.intradayEstimateEnabled !== false
-      && (item.currency || "CNY") === "CNY"
-      && item.strategyBucket !== "gold"
-      && assetClass(item) === "equity"
-      && marketClassification(item).key === "cn-equity";
+  function fundReferenceMarketKey(item) {
+    if (item.assetType !== "fund"
+      || item.pricingMode !== "auto"
+      || item.intradayEstimateEnabled === false
+      || (item.currency || "CNY") !== "CNY"
+      || item.strategyBucket === "gold"
+      || assetClass(item) !== "equity") return "";
+    const marketKey = marketClassification(item).key;
+    return ["cn-equity", "us-equity"].includes(marketKey) ? marketKey : "";
+  }
+
+  function fundReferenceEstimateEligible(item) {
+    return Boolean(fundReferenceMarketKey(item));
+  }
+
+  function usRegularSessionOpen(value = new Date()) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(value);
+    const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    if (["Sat", "Sun"].includes(map.weekday)) return false;
+    const minutes = Number(map.hour) * 60 + Number(map.minute);
+    return minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+  }
+
+  function chinaCalendarDayDistance(earlier, later = chinaDate()) {
+    const start = Date.parse(`${earlier}T00:00:00Z`);
+    const end = Date.parse(`${later}T00:00:00Z`);
+    return Number.isFinite(start) && Number.isFinite(end) ? Math.round((end - start) / 86400000) : NaN;
+  }
+
+  function referenceQuoteFreshForMarket(item) {
+    const quoteDate = chinaDate(item.intradayProxyQuoteTime);
+    if (!quoteDate) return false;
+    if (fundReferenceMarketKey(item) === "cn-equity") return quoteDate === chinaDate();
+    const age = chinaCalendarDayDistance(quoteDate);
+    return Number.isFinite(age) && age >= 0 && age <= 5;
   }
 
   function quoteIdForIntradayProxyCode(value) {
@@ -1019,12 +1119,14 @@
   }
 
   function inferIntradayProxyQuoteId(item) {
-    if (!domesticFundIntradayEligible(item)) return "";
+    if (!fundReferenceEstimateEligible(item)) return "";
+    const marketKey = fundReferenceMarketKey(item);
     const explicit = quoteIdForIntradayProxyCode(item.intradayProxyCode);
-    if (explicit) return explicit;
+    if (explicit && (marketKey !== "us-equity" || /^tencent:us/i.test(explicit))) return explicit;
     const descriptor = [item.name, item.code, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
-    const matchedRule = domesticFundProxyRules.find((rule) => rule.pattern.test(descriptor));
+    const matchedRule = fundProxyRules.find((rule) => rule.pattern.test(descriptor));
     if (matchedRule) return matchedRule.quoteId;
+    if (marketKey === "us-equity") return "";
     if (item.strategyBucket === "dividend") return "tencent:sh512890";
     if (item.strategyBucket === "a500") return "tencent:sh000510";
     return "";
@@ -1036,6 +1138,7 @@
     item.intradayProxyQuoteTime = "";
     item.intradayProxyQuoteName = "";
     item.intradayProxyResolvedQuoteId = "";
+    item.intradayProxyFetchedAt = "";
     item.intradayProxyError = error;
   }
 
@@ -1045,18 +1148,26 @@
     item.intradayProxyQuoteTime = quote.quoteTime;
     item.intradayProxyQuoteName = quote.name;
     item.intradayProxyResolvedQuoteId = quoteId;
+    item.intradayProxyFetchedAt = new Date().toISOString();
     item.intradayProxyError = "";
   }
 
   function currentIntradayProxyMove(item) {
-    if (!domesticFundIntradayEligible(item) || !fundNavDailyPending(item)) return null;
-    if (chinaDate(item.intradayProxyQuoteTime) !== chinaDate()) return null;
+    if (!fundReferenceEstimateEligible(item) || !fundNavDailyPending(item)) return null;
+    if (!referenceQuoteFreshForMarket(item)) return null;
     const price = numeric(item.intradayProxyPrice, NaN);
     const previousClose = numeric(item.intradayProxyPreviousClose, NaN);
     if (!(price > 0) || !(previousClose > 0)) return null;
     const rate = price / previousClose - 1;
     if (!Number.isFinite(rate) || Math.abs(rate) > 0.25) return null;
-    return { rate, quoteId: item.intradayProxyResolvedQuoteId, name: item.intradayProxyQuoteName || "参考指数" };
+    const usQdii = fundReferenceMarketKey(item) === "us-equity";
+    return {
+      rate,
+      quoteId: item.intradayProxyResolvedQuoteId,
+      name: item.intradayProxyQuoteName || "参考指数",
+      referenceLabel: usQdii ? "美股上一交易日估" : "盘中估",
+      usQdii
+    };
   }
 
   function fundNeedsCalibration(item) {
@@ -1090,7 +1201,7 @@
   }
 
   async function refreshIntradayProxyQuote(item, requestCache) {
-    if (!domesticFundIntradayEligible(item)) {
+    if (!fundReferenceEstimateEligible(item)) {
       clearIntradayProxyQuote(item);
       return;
     }
@@ -1100,14 +1211,27 @@
     }
     const quoteId = inferIntradayProxyQuoteId(item);
     if (!quoteId) {
-      clearIntradayProxyQuote(item, "未识别对应的场内 ETF 或指数，请在编辑资产时填写盘中参考代码");
+      clearIntradayProxyQuote(item, "未识别对应的 ETF 或指数，请在编辑资产时填写参考代码");
       return;
     }
     try {
-      if (!requestCache.has(quoteId)) requestCache.set(quoteId, fetchQuote(quoteId));
-      const quote = await requestCache.get(quoteId);
+      const usQdii = fundReferenceMarketKey(item) === "us-equity";
+      const previousMove = usQdii ? currentIntradayProxyMove(item) : null;
+      const fetchedAt = Date.parse(item.intradayProxyFetchedAt || "");
+      if (previousMove && Number.isFinite(fetchedAt) && Date.now() - fetchedAt < 6 * 60 * 60 * 1000) return;
+      const requestKey = usQdii ? `previous-session:${quoteId}` : quoteId;
+      const usSymbol = quoteId.replace(/^tencent:us/i, "");
+      if (!requestCache.has(requestKey)) {
+        requestCache.set(requestKey, usQdii ? fetchSinaUsPreviousSessionQuote(usSymbol) : fetchQuote(quoteId));
+      }
+      const quote = await requestCache.get(requestKey);
       applyIntradayProxyQuote(item, quote, quoteId);
     } catch (error) {
+      if (fundReferenceMarketKey(item) === "us-equity" && currentIntradayProxyMove(item)) {
+        item.intradayProxyFetchedAt = new Date().toISOString();
+        item.intradayProxyError = error?.message || "美股历史行情暂不可用，沿用最近结果";
+        return;
+      }
       clearIntradayProxyQuote(item, error?.message || "盘中参考行情暂不可用");
       item.intradayProxyResolvedQuoteId = quoteId;
     }
@@ -1581,9 +1705,10 @@
     const detailsByUnderlying = new Map();
     group.rows.forEach(({ item: holding, calc }) => {
       const identity = dailyContributionIdentity(holding, group.label);
-      const detailItem = detailsByUnderlying.get(identity.key) || { ...identity, value: 0, estimated: false };
+      const detailItem = detailsByUnderlying.get(identity.key) || { ...identity, value: 0, estimated: false, usQdii: false };
       detailItem.value += calc.dailyPnlCny;
       detailItem.estimated ||= calc.dailyPnlEstimated;
+      detailItem.usQdii ||= Boolean(calc.intradayProxyMove?.usQdii);
       detailsByUnderlying.set(identity.key, detailItem);
     });
     return [...detailsByUnderlying.values()]
@@ -1623,7 +1748,7 @@
       label.title = detail.label;
       const share = document.createElement("small");
       share.textContent = directionalTotal > 0
-        ? `${detail.estimated ? "盘中参考 · " : ""}占所列${directionLabel}贡献 ${formatPercent(Math.abs(detail.value) / directionalTotal)}`
+        ? `${detail.estimated ? `${detail.usQdii ? "美股上一交易日" : "盘中参考"} · ` : ""}占所列${directionLabel}贡献 ${formatPercent(Math.abs(detail.value) / directionalTotal)}`
         : directionLabel;
       identity.append(label, share);
       const value = document.createElement("strong");
@@ -1893,7 +2018,9 @@
     else {
       setSignedClass(dailyCell, calc.dailyPnlCny);
       if (calc.dailyPnlEstimated) {
-        dailyCell.title = `按 ${calc.intradayProxyMove.name} 当日涨跌 ${formatPercent(calc.intradayProxyMove.rate, 2)} 估算；正式净值公布后自动替换`;
+        dailyCell.title = calc.intradayProxyMove.usQdii
+          ? `按 ${calc.intradayProxyMove.name} 上一美股交易日涨跌 ${formatPercent(calc.intradayProxyMove.rate, 2)} 估算；正式净值公布后自动替换`
+          : `按 ${calc.intradayProxyMove.name} 当日涨跌 ${formatPercent(calc.intradayProxyMove.rate, 2)} 估算；正式净值公布后自动替换`;
       }
     }
     appendCell(row, "风险敞口", formatMoney(calc.exposureCny));
@@ -1915,7 +2042,7 @@
         : "";
       const navDate = holdingUsesFundNav(item) && fundNavDate(item) ? `净值日期 ${fundNavDate(item)}` : "";
       const intradayProxy = item.intradayProxyResolvedQuoteId
-        ? `盘中参考 ${item.intradayProxyQuoteName || item.intradayProxyResolvedQuoteId}${item.intradayProxyQuoteTime ? ` · ${new Date(item.intradayProxyQuoteTime).toLocaleString("zh-CN", { hour12: false })}` : ""}`
+        ? `参考行情 ${item.intradayProxyQuoteName || item.intradayProxyResolvedQuoteId}${item.intradayProxyQuoteTime ? ` · ${new Date(item.intradayProxyQuoteTime).toLocaleString("zh-CN", { hour12: false })}` : ""}`
         : "";
       const details = [item.resolvedQuoteId, navDate, calibration, intradayProxy, item.intradayProxyError, item.quoteError].filter(Boolean).join(" · ");
       if (details) quote.title = details;
@@ -2020,7 +2147,7 @@
     quote.className = `quote-status${pendingFunds || intradayEstimatedFunds ? " pending" : (automatic.length && successful === automatic.length ? " ok" : "")}`;
     quote.textContent = automatic.length
       ? (intradayEstimatedFunds
-        ? `盘中估 ${intradayEstimatedFunds}笔${pendingFunds ? ` · 待净值 ${pendingFunds}笔` : ""}`
+        ? `参考估 ${intradayEstimatedFunds}笔${pendingFunds ? ` · 待净值 ${pendingFunds}笔` : ""}`
         : (pendingFunds ? `待净值 ${pendingFunds}/${automatic.length}` : `行情 ${successful}/${automatic.length}`))
       : "本地估值";
     quote.title = "各项价值已按最新汇率换算为人民币";
@@ -2842,7 +2969,7 @@
   function validateItem(item) {
     const estimatedFund = fundUsesEstimatedShares(item);
     if (!item.name && !estimatedFund) return "请填写资产名称";
-    if (item.intradayProxyCode && !quoteIdForIntradayProxyCode(item.intradayProxyCode)) return "无法识别盘中参考代码，请填写 ETF 或指数代码";
+    if (item.intradayProxyCode && !quoteIdForIntradayProxyCode(item.intradayProxyCode)) return "无法识别参考代码，请填写 ETF 或指数代码";
     if (estimatedFund) {
       if (item.pricingMode !== "auto") return "金额估算模式需要使用自动行情";
       if (!(item.fundSeedAmount > 0)) return "请填写平台显示的当前金额";
