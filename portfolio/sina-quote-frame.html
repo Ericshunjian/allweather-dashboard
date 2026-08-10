@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-allweather-sina-quote' https://stock.finance.sina.com.cn; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-allweather-sina-quote' https://futsseapi.eastmoney.com https://stock.finance.sina.com.cn; base-uri 'none'; form-action 'none'">
   <title>期货行情沙箱</title>
 </head>
 <body>
@@ -14,38 +14,72 @@
       const params = new URLSearchParams(window.location.search);
       const symbol = String(params.get("symbol") || "").trim().toUpperCase();
       const requestId = String(params.get("request") || "");
-      const callbackName = `__portfolioVaultSandboxQuote_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const send = (payload) => window.parent.postMessage({ requestId, ...payload }, "*");
-      const cleanup = () => {
-        delete window[callbackName];
-        script.remove();
+      let activeCallback = "";
+      let activeScript = null;
+      let finished = false;
+      const clearActiveRequest = () => {
+        if (activeCallback) delete window[activeCallback];
+        activeScript?.remove();
+        activeCallback = "";
+        activeScript = null;
       };
-      const script = document.createElement("script");
+      const finish = (payload) => {
+        if (finished) return;
+        finished = true;
+        window.clearTimeout(timer);
+        clearActiveRequest();
+        send(payload);
+      };
       const timer = window.setTimeout(() => {
-        cleanup();
-        send({ ok: false });
-      }, 10000);
+        finish({ ok: false });
+      }, 12000);
 
       if (!/^(?:T|TF|TS|TL)(?:0|\d{3,4})$/.test(symbol) || !requestId) {
-        window.clearTimeout(timer);
-        cleanup();
-        send({ ok: false });
+        finish({ ok: false });
         return;
       }
 
-      window[callbackName] = (rows) => {
-        window.clearTimeout(timer);
-        cleanup();
-        send({ ok: true, rows: Array.isArray(rows) ? rows : [] });
+      const loadSinaClose = () => {
+        clearActiveRequest();
+        activeCallback = `__portfolioVaultSinaQuote_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        activeScript = document.createElement("script");
+        window[activeCallback] = (rows) => finish({ ok: true, rows: Array.isArray(rows) ? rows : [] });
+        activeScript.onerror = () => finish({ ok: false });
+        activeScript.referrerPolicy = "no-referrer";
+        activeScript.src = `https://stock.finance.sina.com.cn/futures/api/jsonp.php/${activeCallback}/InnerFuturesNewService.getDailyKLine?symbol=${encodeURIComponent(symbol)}&_=${Date.now()}`;
+        document.head.appendChild(activeScript);
       };
-      script.onerror = () => {
-        window.clearTimeout(timer);
-        cleanup();
-        send({ ok: false });
+
+      const continuousSymbols = { T0: "TS0", TF0: "TFS0", TS0: "TSS0", TL0: "TLS0" };
+      const eastmoneySymbol = continuousSymbols[symbol] || symbol;
+      activeCallback = `__portfolioVaultEastmoneyQuote_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      activeScript = document.createElement("script");
+      window[activeCallback] = (payload) => {
+        const quote = payload?.qt;
+        const price = Number(quote?.p);
+        const previousClose = Number(quote?.zjsj || quote?.qrspj);
+        const timestamp = Number(quote?.utime);
+        if (!(price > 0)) {
+          loadSinaClose();
+          return;
+        }
+        finish({
+          ok: true,
+          quote: {
+            price,
+            previousClose: previousClose > 0 ? previousClose : price,
+            name: String(quote?.name || symbol),
+            quoteTime: timestamp > 0 ? new Date(timestamp * 1000).toISOString() : new Date().toISOString(),
+            quoteLabel: "延时行情"
+          }
+        });
       };
-      script.referrerPolicy = "no-referrer";
-      script.src = `https://stock.finance.sina.com.cn/futures/api/jsonp.php/${callbackName}/InnerFuturesNewService.getDailyKLine?symbol=${encodeURIComponent(symbol)}&_=${Date.now()}`;
-      document.head.appendChild(script);
+      activeScript.onerror = loadSinaClose;
+      activeScript.referrerPolicy = "no-referrer";
+      const fields = "name,dm,p,zjsj,qrspj,utime";
+      activeScript.src = `https://futsseapi.eastmoney.com/static/220_${encodeURIComponent(eastmoneySymbol)}_qt?callbackName=${encodeURIComponent(activeCallback)}&field=${encodeURIComponent(fields)}&token=1101ffec61617c99be287c1bec3085ff&_=${Date.now()}`;
+      document.head.appendChild(activeScript);
     })();
   </script>
 </body>

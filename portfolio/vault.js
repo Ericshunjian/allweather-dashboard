@@ -739,6 +739,22 @@
           reject(new Error("期货行情加载失败"));
           return;
         }
+        if (event.data.quote) {
+          const price = numeric(event.data.quote.price, NaN);
+          const previousClose = numeric(event.data.quote.previousClose, price);
+          if (!(price > 0)) {
+            reject(new Error("无有效期货行情"));
+            return;
+          }
+          resolve({
+            price,
+            previousClose: previousClose > 0 ? previousClose : price,
+            name: String(event.data.quote.name || symbol.toUpperCase()),
+            quoteTime: String(event.data.quote.quoteTime || new Date().toISOString()),
+            quoteLabel: event.data.quote.quoteLabel || "延时行情"
+          });
+          return;
+        }
         const observations = Array.isArray(event.data.rows)
           ? event.data.rows.filter((row) => row && row.d && row.c)
           : [];
