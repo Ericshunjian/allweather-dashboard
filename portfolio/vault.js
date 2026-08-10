@@ -1188,10 +1188,23 @@
     return ["stock", "etf", "fund", "option"].includes(item.assetType);
   }
 
+  function inferredEquityMarket(item) {
+    const descriptor = [item.name, item.code, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
+    if (/标普|S\s*&\s*P|纳斯达克|纳指|NASDAQ|美股|美国|(?:^|\s)(?:SPY|VOO|IVV|SPLG|QQQ|QQQM)(?:\.US)?(?:$|\s)/i.test(descriptor)) {
+      return { key: "us-equity", label: "美股" };
+    }
+    if (/恒生|港股|香港|(?:^|\s)(?:HSI|HSCEI)(?:$|\s)/i.test(descriptor)) {
+      return { key: "hk-equity", label: "港股" };
+    }
+    return null;
+  }
+
   function marketClassification(item) {
     const currency = item.currency || "CNY";
     const broadClass = assetClass(item);
     if (broadClass !== "equity") return { key: broadClass, label: classLabels[broadClass] || "其他" };
+    const inferredMarket = isEquityInstrument(item) ? inferredEquityMarket(item) : null;
+    if (inferredMarket) return inferredMarket;
     if (isEquityInstrument(item) && currency === "USD") return { key: "us-equity", label: "美股" };
     if (isEquityInstrument(item) && currency === "HKD") return { key: "hk-equity", label: "港股" };
     if (isEquityInstrument(item) && currency === "CNY") return { key: "cn-equity", label: "国内权益" };
@@ -1200,7 +1213,7 @@
 
   function hasOverseasEquityDescriptor(item) {
     const descriptor = [item.name, item.code, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
-    return /标普|S\s*&\s*P|纳斯达克|纳指|NASDAQ|美股|美国|全球|恒生|港股|(?:^|\s)(?:SPY|VOO|IVV|SPLG|QQQ|QQQM)(?:\.US)?(?:$|\s)/i.test(descriptor);
+    return Boolean(inferredEquityMarket(item)) || /全球/i.test(descriptor);
   }
 
   function strategyClassification(item) {
