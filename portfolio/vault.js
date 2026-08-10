@@ -71,6 +71,7 @@
   let quoteRefreshTimer = null;
   let summaryValuesVisible = false;
   const expandedHoldingGroups = new Set();
+  const expandedDailyContributionGroups = new Set();
 
   const $ = (id) => document.getElementById(id);
   const lockScreen = $("lock-screen");
@@ -83,7 +84,6 @@
   const holdingForm = $("holding-form");
   const tradeDialog = $("trade-dialog");
   const tradeForm = $("trade-form");
-  const dailyContributionDialog = $("daily-contribution-dialog");
   const confirmDialog = $("confirm-dialog");
   const syncDialog = $("sync-dialog");
 
@@ -496,7 +496,8 @@
     vault = null;
     summaryValuesVisible = false;
     expandedHoldingGroups.clear();
-    [holdingDialog, tradeDialog, dailyContributionDialog, syncDialog, confirmDialog].forEach((dialog) => {
+    expandedDailyContributionGroups.clear();
+    [holdingDialog, tradeDialog, syncDialog, confirmDialog].forEach((dialog) => {
       if (dialog?.open) dialog.close();
     });
     pendingConfirmation = null;
@@ -1410,26 +1411,32 @@
       .slice(0, 5);
   }
 
-  function openDailyContributionDetails(group) {
+  function createDailyContributionDetails(group, panelId) {
     const positive = group.value > 0;
     const directionLabel = positive ? "盈利" : "亏损";
-    const formattedTotal = positive ? `+${formatMoney(group.value)}` : formatMoney(group.value);
     const details = dailyContributionDetails(group);
     const directionalTotal = details.reduce((sum, item) => sum + Math.abs(item.value), 0);
-    $("daily-contribution-dialog-title").textContent = `${group.label} · ${directionLabel}贡献`;
-    const total = $("daily-contribution-dialog-total");
-    total.className = positive ? "positive" : "negative";
-    total.textContent = `今日${directionLabel}贡献 ${formattedTotal}`;
-    $("daily-contribution-dialog-note").textContent = `前五大细分品种 · 同品种跨平台合并`;
-    const list = $("daily-contribution-dialog-list");
-    list.replaceChildren();
+    const panel = document.createElement("div");
+    panel.id = panelId;
+    panel.className = "daily-contribution-details";
+    panel.setAttribute("role", "region");
+    panel.setAttribute("aria-label", `${group.label}${directionLabel}贡献前五品种`);
+    const heading = document.createElement("div");
+    heading.className = "daily-contribution-details-heading";
+    const title = document.createElement("strong");
+    title.textContent = `${directionLabel}贡献前五品种`;
+    const mergeNote = document.createElement("span");
+    mergeNote.textContent = "同品种跨平台合并";
+    heading.append(title, mergeNote);
+    const list = document.createElement("ol");
+    list.className = "daily-contribution-details-list";
     details.forEach((detail, index) => {
       const listItem = document.createElement("li");
       const rank = document.createElement("span");
       rank.className = "daily-contribution-detail-rank";
       rank.textContent = String(index + 1);
       const identity = document.createElement("div");
-      identity.className = "daily-contribution-dialog-identity";
+      identity.className = "daily-contribution-detail-identity";
       const label = document.createElement("strong");
       label.textContent = detail.label;
       label.title = detail.label;
@@ -1444,7 +1451,11 @@
       listItem.append(rank, identity, value);
       list.appendChild(listItem);
     });
-    dailyContributionDialog.showModal();
+    const hint = document.createElement("p");
+    hint.className = "daily-contribution-details-hint";
+    hint.textContent = "仅显示同方向贡献最大的五个品种";
+    panel.append(heading, list, hint);
+    return panel;
   }
 
   function renderDailyContribution(metrics) {
@@ -1493,11 +1504,15 @@
 
     const maxAbsolute = Math.max(...selected.map((item) => Math.abs(item.value)), 1e-12);
     selected.forEach((item) => {
+      const expanded = expandedDailyContributionGroups.has(item.key);
+      const panelId = `daily-contribution-details-${item.key.replace(/[^a-z0-9_-]+/gi, "-")}`;
       const row = document.createElement("button");
       row.className = "daily-contribution-row";
       row.type = "button";
-      row.setAttribute("aria-haspopup", "dialog");
-      row.title = `点击查看${item.label}${item.value > 0 ? "盈利" : "亏损"}贡献前五明细`;
+      row.classList.toggle("is-expanded", expanded);
+      row.setAttribute("aria-expanded", String(expanded));
+      row.setAttribute("aria-controls", panelId);
+      row.title = `${expanded ? "收起" : "展开"}${item.label}${item.value > 0 ? "盈利" : "亏损"}贡献前五品种`;
       const labelWrap = document.createElement("span");
       labelWrap.className = "daily-contribution-label-wrap";
       const chevron = document.createElement("span");
@@ -1520,8 +1535,16 @@
       value.textContent = item.value > 0 ? `+${formatMoney(item.value)}` : formatMoney(item.value);
       row.setAttribute("aria-label", `${item.label} ${item.value > 0 ? "盈利贡献" : "亏损贡献"}${value.textContent}`);
       row.append(labelWrap, track, value);
-      row.addEventListener("click", () => openDailyContributionDetails(item));
+      row.addEventListener("click", () => {
+        if (expanded) expandedDailyContributionGroups.delete(item.key);
+        else {
+          expandedDailyContributionGroups.clear();
+          expandedDailyContributionGroups.add(item.key);
+        }
+        renderDailyContribution(metrics);
+      });
       chart.appendChild(row);
+      if (expanded) chart.appendChild(createDailyContributionDetails(item, panelId));
     });
   }
 
@@ -2840,10 +2863,6 @@
   holdingForm.addEventListener("submit", saveHolding);
   $("close-trade-dialog").addEventListener("click", () => tradeDialog.close());
   $("cancel-trade").addEventListener("click", () => tradeDialog.close());
-  $("close-daily-contribution-dialog").addEventListener("click", () => dailyContributionDialog.close());
-  dailyContributionDialog.addEventListener("click", (event) => {
-    if (event.target === dailyContributionDialog) dailyContributionDialog.close();
-  });
   $("trade-holding").addEventListener("change", () => updateTradeFormForHolding());
   $("trade-type").addEventListener("change", updateTradePreview);
   $("trade-input-mode").addEventListener("change", updateTradeInputVisibility);
