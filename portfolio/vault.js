@@ -76,8 +76,8 @@
     other: "其他"
   });
   const genericContributionLabels = new Set([
-    "美股", "港股", "国内权益", "权益", "股票", "ETF", "场外基金", "基金",
-    "黄金", "债券", "现金", "现金理财", "国内宽基", "红利低波", "国债期货",
+    "AH股", "美股", "港股", "国内权益", "全球权益", "权益", "股票", "ETF", "场外基金", "基金",
+    "期货", "期权", "黄金", "债券", "现金", "现金理财", "国内宽基", "红利低波", "国债期货",
     "其他", "未纳入策略"
   ].map((label) => label.toLocaleLowerCase("zh-CN")));
   const donutPalette = Object.freeze(["#24679c", "#0b7a61", "#b77b17", "#8b5c9c", "#b34f2e", "#78909c"]);
@@ -1502,6 +1502,18 @@
     return { key: broadClass, label: classLabels[broadClass] || "其他" };
   }
 
+  function dailyContributionClassification(item) {
+    if (item.assetType === "futures") return { key: "futures", label: "期货" };
+    if (item.assetType === "option") return { key: "options", label: "期权" };
+    const market = marketClassification(item);
+    if (market.key === "us-equity") return market;
+    if (market.key === "cn-equity" && /全球|海外/i.test([item.name, item.quoteName, item.underlyingName].filter(Boolean).join(" "))) {
+      return { key: "global-equity", label: "全球权益" };
+    }
+    if (["cn-equity", "hk-equity"].includes(market.key)) return { key: "ah-equity", label: "AH股" };
+    return market;
+  }
+
   function hasOverseasEquityDescriptor(item) {
     const descriptor = [item.name, item.code, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
     return Boolean(inferredEquityMarket(item)) || /全球/i.test(descriptor);
@@ -1769,8 +1781,7 @@
     chart.replaceChildren();
     const grouped = new Map();
     metrics.rows.forEach((row) => {
-      const strategyCategory = strategyClassification(row.item);
-      const category = strategyCategory || marketClassification(row.item);
+      const category = dailyContributionClassification(row.item);
       const groupKey = `daily:${category.key}`;
       const current = grouped.get(groupKey) || { ...category, key: groupKey, value: 0, rows: [], estimated: false };
       current.rows.push(row);
