@@ -367,6 +367,18 @@ input::placeholder {
   border-color: var(--blue);
 }
 
+.money-values-hidden :is(
+  #holding-fund-seed-amount,
+  #holding-price,
+  #holding-entry-price,
+  #holding-underlying-price,
+  #holding-fixed-value,
+  #trade-amount,
+  #trade-price
+) {
+  filter: blur(5px);
+}
+
 .summary-item strong {
   display: block;
   overflow-wrap: anywhere;

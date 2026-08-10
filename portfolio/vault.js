@@ -100,7 +100,7 @@
   let localVaultHasUserChanges = false;
   let historyPeriod = "day";
   let quoteRefreshTimer = null;
-  let summaryValuesVisible = false;
+  let moneyValuesVisible = false;
   const expandedHoldingGroups = new Set();
   const expandedDailyContributionGroups = new Set();
 
@@ -525,7 +525,7 @@
     clearInterval(quoteRefreshTimer);
     sessionKey = null;
     vault = null;
-    summaryValuesVisible = false;
+    moneyValuesVisible = false;
     expandedHoldingGroups.clear();
     expandedDailyContributionGroups.clear();
     [holdingDialog, tradeDialog, syncDialog, confirmDialog].forEach((dialog) => {
@@ -592,6 +592,7 @@
   function formatMoney(value, digits = 0) {
     const number = Number(value);
     if (!Number.isFinite(number)) return "--";
+    if (!moneyValuesVisible) return "******";
     const absolute = Math.abs(number);
     const formatted = new Intl.NumberFormat("zh-CN", {
       minimumFractionDigits: digits,
@@ -603,6 +604,7 @@
   function formatNative(value, currency) {
     const number = Number(value);
     if (!Number.isFinite(number)) return "--";
+    if (!moneyValuesVisible) return "******";
     return new Intl.NumberFormat("zh-CN", {
       style: "currency",
       currency: currency || "CNY",
@@ -624,6 +626,7 @@
   function formatQuotePrice(value, currency = "CNY") {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return "--";
+    if (!moneyValuesVisible) return "******";
     const symbol = { CNY: "¥", USD: "$", HKD: "HK$" }[currency] || `${currency} `;
     const digits = number < 10 ? 4 : 3;
     return `${symbol}${new Intl.NumberFormat("zh-CN", {
@@ -1333,22 +1336,24 @@
 
   function setSignedClass(element, value) {
     element.classList.remove("positive", "negative");
+    if (!moneyValuesVisible) return;
     if (value > 0) element.classList.add("positive");
     if (value < 0) element.classList.add("negative");
   }
 
   function setSummaryValue(id, value, signedValue = null) {
     const element = $(id);
-    element.textContent = summaryValuesVisible ? value : "******";
+    element.textContent = value;
     element.classList.remove("positive", "negative");
-    if (summaryValuesVisible && signedValue !== null) setSignedClass(element, signedValue);
+    if (signedValue !== null) setSignedClass(element, signedValue);
   }
 
   function updateSummaryPrivacyButton() {
     const button = $("toggle-summary-privacy");
-    button.textContent = summaryValuesVisible ? "隐藏" : "显示";
-    button.setAttribute("aria-pressed", String(summaryValuesVisible));
-    button.setAttribute("aria-label", summaryValuesVisible ? "隐藏资产摘要" : "显示资产摘要");
+    button.textContent = moneyValuesVisible ? "隐藏金额" : "显示金额";
+    button.setAttribute("aria-pressed", String(moneyValuesVisible));
+    button.setAttribute("aria-label", moneyValuesVisible ? "隐藏全页金额" : "显示全页金额");
+    app.classList.toggle("money-values-hidden", !moneyValuesVisible);
   }
 
   function renderSummary(metrics) {
@@ -1557,7 +1562,10 @@
   }
 
   function formatCompactMoney(value) {
-    return `¥${new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value)}`;
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "--";
+    if (!moneyValuesVisible) return "******";
+    return `¥${new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(number)}`;
   }
 
   function renderDonut(containerId, rawSegments, options) {
@@ -3256,7 +3264,7 @@
   });
   $("lock-vault").addEventListener("click", lockVault);
   $("toggle-summary-privacy").addEventListener("click", () => {
-    summaryValuesVisible = !summaryValuesVisible;
+    moneyValuesVisible = !moneyValuesVisible;
     renderAll();
   });
   $("refresh-quotes").addEventListener("click", () => refreshQuotes());
