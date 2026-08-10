@@ -103,15 +103,53 @@
           <p class="eyebrow">POSITIONS</p>
           <h2>资产明细</h2>
         </div>
-        <div class="filter-row" role="group" aria-label="资产筛选">
-          <button class="filter-button active" type="button" data-filter="all">全部</button>
-          <button class="filter-button" type="button" data-filter="equity">权益</button>
-          <button class="filter-button" type="button" data-filter="bond">债券</button>
-          <button class="filter-button" type="button" data-filter="gold">黄金</button>
-          <button class="filter-button" type="button" data-filter="cash">现金</button>
+        <span class="status-pill">人民币口径</span>
+      </div>
+      <div class="holding-insights-grid" aria-label="资产分类概览">
+        <article class="holding-insight-card">
+          <div class="holding-insight-heading">
+            <div><small>PLATFORM</small><strong>按平台</strong></div>
+            <span>净资产</span>
+          </div>
+          <div id="platform-donut" class="donut-chart"></div>
+        </article>
+        <article class="holding-insight-card">
+          <div class="holding-insight-heading">
+            <div><small>ASSET CLASS</small><strong>按资产类别</strong></div>
+            <span>净资产</span>
+          </div>
+          <div id="class-donut" class="donut-chart"></div>
+        </article>
+        <article class="holding-insight-card">
+          <div class="holding-insight-heading">
+            <div><small>RISK PARITY</small><strong>按策略大类</strong></div>
+            <span>风险敞口</span>
+          </div>
+          <div id="strategy-donut" class="donut-chart"></div>
+        </article>
+      </div>
+      <div class="holding-controls">
+        <div class="holding-control-group">
+          <span>查看方式</span>
+          <div class="filter-row" role="group" aria-label="资产分组方式">
+            <button class="group-mode-button active" type="button" data-group-mode="underlying">底层资产</button>
+            <button class="group-mode-button" type="button" data-group-mode="platform">平台</button>
+            <button class="group-mode-button" type="button" data-group-mode="market">市场</button>
+            <button class="group-mode-button" type="button" data-group-mode="strategy">策略</button>
+          </div>
+        </div>
+        <div class="holding-control-group">
+          <span>筛选</span>
+          <div class="filter-row" role="group" aria-label="资产筛选">
+            <button class="filter-button active" type="button" data-filter="all">全部</button>
+            <button class="filter-button" type="button" data-filter="equity">权益</button>
+            <button class="filter-button" type="button" data-filter="bond">债券</button>
+            <button class="filter-button" type="button" data-filter="gold">黄金</button>
+            <button class="filter-button" type="button" data-filter="cash">现金</button>
+          </div>
         </div>
       </div>
-      <p class="quote-source-note">相同底层资产会自动折叠 · 不同币种按最新汇率折算成人民币 · 场内行情约每 5 分钟刷新</p>
+      <p class="quote-source-note">分组行点击展开 · 不同币种按最新汇率折算人民币 · 策略大类按风险敞口汇总</p>
       <div id="holdings-empty" class="empty-state">
         <strong>尚未录入资产</strong>
         <span>添加第一项持仓后开始计算组合。</span>
@@ -211,7 +249,7 @@
         </label>
         <label>策略分类
           <select id="holding-bucket">
-            <option value="a500">宽基权益</option>
+            <option value="a500">国内宽基</option>
             <option value="dividend">红利低波</option>
             <option value="gold">黄金</option>
             <option value="bond_futures">国债期货</option>

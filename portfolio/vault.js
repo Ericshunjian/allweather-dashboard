@@ -32,7 +32,7 @@
   const bucketLabels = Object.freeze({
     gold: "黄金",
     dividend: "红利低波",
-    a500: "宽基权益",
+    a500: "国内宽基",
     bond_futures: "国债期货",
     cash: "现金理财",
     other: "其他"
@@ -44,11 +44,15 @@
     cash: "现金理财",
     other: "其他"
   });
+  const donutPalette = Object.freeze(["#24679c", "#0b7a61", "#b77b17", "#8b5c9c", "#b34f2e", "#78909c"]);
+  const classColors = Object.freeze({ equity: "#24679c", gold: "#b77b17", bond: "#0b7a61", cash: "#78909c", other: "#8b5c9c" });
+  const strategyColors = Object.freeze({ gold: "#b77b17", dividend: "#b34f2e", a500: "#24679c", bond_futures: "#0b7a61", cash: "#78909c" });
 
   let sessionKey = null;
   let vault = null;
   let strategyTarget = null;
   let activeFilter = "all";
+  let holdingGroupingMode = "underlying";
   let pendingDeleteId = null;
   let lockTimer = null;
   let toastTimer = null;
@@ -1020,6 +1024,137 @@
     $("largest-gap").textContent = `${bucketLabels[largest.key]} ${largest.gap >= 0 ? "+" : ""}${formatPercent(largest.gap)}`;
   }
 
+  function platformClassification(item) {
+    const label = String(item.account || "").trim() || "未填写平台";
+    return { key: normalizedGroupToken(label) || "unassigned", label };
+  }
+
+  function isEquityInstrument(item) {
+    return ["stock", "etf", "fund", "option"].includes(item.assetType);
+  }
+
+  function marketClassification(item) {
+    const currency = item.currency || "CNY";
+    const broadClass = assetClass(item);
+    if (broadClass !== "equity") return { key: broadClass, label: classLabels[broadClass] || "其他" };
+    if (isEquityInstrument(item) && currency === "USD") return { key: "us-equity", label: "美股" };
+    if (isEquityInstrument(item) && currency === "HKD") return { key: "hk-equity", label: "港股" };
+    if (isEquityInstrument(item) && currency === "CNY") return { key: "cn-equity", label: "国内权益" };
+    return { key: broadClass, label: classLabels[broadClass] || "其他" };
+  }
+
+  function hasOverseasEquityDescriptor(item) {
+    const descriptor = [item.name, item.code, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
+    return /标普|S\s*&\s*P|纳斯达克|纳指|NASDAQ|美股|美国|全球|恒生|港股|(?:^|\s)(?:SPY|VOO|IVV|SPLG|QQQ|QQQM)(?:\.US)?(?:$|\s)/i.test(descriptor);
+  }
+
+  function strategyClassification(item) {
+    const bucket = item.strategyBucket;
+    if (!["gold", "dividend", "a500", "bond_futures", "cash"].includes(bucket)) return null;
+    if (["dividend", "a500"].includes(bucket) && ((item.currency || "CNY") !== "CNY" || hasOverseasEquityDescriptor(item))) return null;
+    return { key: bucket, label: bucketLabels[bucket] };
+  }
+
+  function categoryTotals(rows, classifier, valueForRow) {
+    const totals = new Map();
+    rows.forEach((row) => {
+      const category = classifier(row.item);
+      const value = Number(valueForRow(row, category));
+      if (!category || !(value > 0)) return;
+      const current = totals.get(category.key) || { ...category, value: 0 };
+      current.value += value;
+      totals.set(category.key, current);
+    });
+    return [...totals.values()].sort((left, right) => right.value - left.value);
+  }
+
+  function limitDonutSegments(segments, limit, otherLabel) {
+    if (segments.length <= limit) return segments;
+    const visible = segments.slice(0, limit - 1);
+    const otherValue = segments.slice(limit - 1).reduce((sum, item) => sum + item.value, 0);
+    return [...visible, { key: "other", label: otherLabel, value: otherValue }];
+  }
+
+  function formatCompactMoney(value) {
+    return `¥${new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value)}`;
+  }
+
+  function renderDonut(containerId, rawSegments, options) {
+    const container = $(containerId);
+    container.replaceChildren();
+    const segments = rawSegments
+      .filter((item) => item.value > 0)
+      .map((item, index) => ({ ...item, color: item.color || donutPalette[index % donutPalette.length] }));
+    const total = segments.reduce((sum, item) => sum + item.value, 0);
+    if (!(total > 0)) {
+      const empty = document.createElement("div");
+      empty.className = "donut-empty";
+      empty.textContent = options.emptyMessage;
+      container.appendChild(empty);
+      return;
+    }
+
+    let cursor = 0;
+    const stops = segments.map((item) => {
+      const start = cursor;
+      cursor += item.value / total * 100;
+      return `${item.color} ${start.toFixed(3)}% ${cursor.toFixed(3)}%`;
+    });
+    const layout = document.createElement("div");
+    layout.className = "donut-layout";
+    const ring = document.createElement("div");
+    ring.className = "donut-ring";
+    ring.style.background = `conic-gradient(${stops.join(", ")})`;
+    ring.setAttribute("role", "img");
+    ring.setAttribute("aria-label", segments.map((item) => `${item.label}${formatPercent(item.value / total)}`).join("，"));
+    const center = document.createElement("div");
+    center.className = "donut-center";
+    const centerValue = document.createElement("strong");
+    centerValue.textContent = formatCompactMoney(total);
+    const centerLabel = document.createElement("span");
+    centerLabel.textContent = options.centerLabel;
+    center.append(centerValue, centerLabel);
+    ring.appendChild(center);
+
+    const legend = document.createElement("ul");
+    legend.className = "donut-legend";
+    segments.forEach((item) => {
+      const legendItem = document.createElement("li");
+      const swatch = document.createElement("span");
+      swatch.className = "donut-swatch";
+      swatch.style.background = item.color;
+      const label = document.createElement("span");
+      label.className = "donut-legend-label";
+      label.textContent = item.label;
+      label.title = item.label;
+      const value = document.createElement("span");
+      value.className = "donut-legend-value";
+      value.textContent = formatPercent(item.value / total);
+      value.title = formatMoney(item.value);
+      legendItem.append(swatch, label, value);
+      legend.appendChild(legendItem);
+    });
+    layout.append(ring, legend);
+    container.appendChild(layout);
+  }
+
+  function renderHoldingInsights(metrics) {
+    const netAssetValue = ({ item, calc }) => item.includeNav ? Math.max(0, calc.valueCny) : 0;
+    const platforms = limitDonutSegments(categoryTotals(metrics.rows, platformClassification, netAssetValue), 6, "其他平台");
+    const classes = categoryTotals(metrics.rows, (item) => {
+      const key = assetClass(item);
+      return { key, label: classLabels[key] };
+    }, netAssetValue).map((item) => ({ ...item, color: classColors[item.key] }));
+    const strategies = categoryTotals(metrics.rows, strategyClassification, ({ item, calc }, category) => {
+      if (!category) return 0;
+      return category.key === "cash" ? Math.max(0, calc.valueCny) : Math.abs(calc.exposureCny);
+    }).map((item) => ({ ...item, color: strategyColors[item.key] }));
+
+    renderDonut("platform-donut", platforms, { centerLabel: "总资产", emptyMessage: "录入资产后显示平台分布" });
+    renderDonut("class-donut", classes, { centerLabel: "总资产", emptyMessage: "录入资产后显示类别分布" });
+    renderDonut("strategy-donut", strategies, { centerLabel: "总敞口", emptyMessage: "尚无已归类的策略资产" });
+  }
+
   function appendCell(row, label, content) {
     const cell = document.createElement("td");
     cell.dataset.label = label;
@@ -1057,18 +1192,49 @@
     return null;
   }
 
-  function holdingPresentationEntries(rows) {
+  function presentationGroupIdentity(item, mode) {
+    if (mode === "platform") {
+      const category = platformClassification(item);
+      return { key: `platform:${category.key}`, label: category.label, alwaysGroup: true };
+    }
+    if (mode === "market") {
+      const category = marketClassification(item);
+      return { key: `market:${category.key}`, label: category.label, alwaysGroup: true };
+    }
+    if (mode === "strategy") {
+      const category = strategyClassification(item);
+      return category
+        ? { key: `strategy:${category.key}`, label: category.label, alwaysGroup: true }
+        : { key: "strategy:unassigned", label: "未纳入策略", alwaysGroup: true, unassigned: true };
+    }
+    const identity = holdingGroupIdentity(item);
+    return identity ? { ...identity, key: `underlying:${identity.key}`, alwaysGroup: false } : null;
+  }
+
+  function holdingPresentationEntries(rows, mode = "underlying") {
     const grouped = new Map();
     rows.forEach((row, index) => {
-      const identity = holdingGroupIdentity(row.item);
+      const identity = presentationGroupIdentity(row.item, mode);
       if (!identity) {
-        grouped.set(`item:${row.item.id}`, { ...identity, key: `item:${row.item.id}`, label: row.item.name, rows: [row], index });
+        grouped.set(`item:${row.item.id}`, { key: `item:${row.item.id}`, label: row.item.name, rows: [row], index, mode });
         return;
       }
-      if (!grouped.has(identity.key)) grouped.set(identity.key, { ...identity, rows: [], index });
+      if (!grouped.has(identity.key)) grouped.set(identity.key, { ...identity, rows: [], index, mode });
       grouped.get(identity.key).rows.push(row);
     });
-    return [...grouped.values()].sort((left, right) => left.index - right.index);
+    const entries = [...grouped.values()];
+    if (mode === "underlying") return entries.sort((left, right) => left.index - right.index);
+    return entries.sort((left, right) => {
+      if (left.unassigned !== right.unassigned) return left.unassigned ? 1 : -1;
+      const total = (group) => group.rows.reduce((sum, { item, calc }) => {
+        if (mode === "strategy") {
+          const category = strategyClassification(item);
+          if (category) return sum + (category.key === "cash" ? Math.max(0, calc.valueCny) : Math.abs(calc.exposureCny));
+        }
+        return sum + Math.max(0, calc.valueCny);
+      }, 0);
+      return total(right) - total(left) || left.label.localeCompare(right.label, "zh-CN");
+    });
   }
 
   function createHoldingIdentity(item) {
@@ -1152,6 +1318,7 @@
     name.className = "holding-name";
     name.textContent = group.label;
     const accounts = new Set(group.rows.map(({ item }) => item.account).filter(Boolean));
+    const assetTypes = new Set(group.rows.map(({ item }) => typeLabels[item.assetType]).filter(Boolean));
     const currencies = [...new Set(group.rows.map(({ item }) => item.currency || "CNY"))];
     const currencyText = currencies.some((currency) => currency !== "CNY")
       ? `${currencies.join("/")} · 已折算人民币`
@@ -1160,7 +1327,8 @@
     meta.className = "holding-meta";
     meta.textContent = [
       `${group.rows.length}笔持仓`,
-      accounts.size ? `${accounts.size}个平台` : "",
+      group.mode === "platform" ? `${assetTypes.size}类资产` : (accounts.size ? `${accounts.size}个平台` : ""),
+      group.unassigned ? "不计入策略饼图" : "",
       currencyText
     ].filter(Boolean).join(" · ");
     identity.append(name, meta);
@@ -1201,8 +1369,8 @@
     const visible = metrics.rows.filter(({ item }) => activeFilter === "all" || assetClass(item) === activeFilter);
     $("holdings-empty").hidden = vault.holdings.length > 0;
     $("holdings-table-wrap").hidden = vault.holdings.length === 0;
-    holdingPresentationEntries(visible).forEach((group) => {
-      if (group.rows.length < 2) {
+    holdingPresentationEntries(visible, holdingGroupingMode).forEach((group) => {
+      if (!group.alwaysGroup && group.rows.length < 2) {
         body.appendChild(createHoldingRow(group.rows[0], metrics));
         return;
       }
@@ -1386,6 +1554,7 @@
     renderSummary(metrics);
     renderAllocation(metrics);
     renderStrategy(metrics);
+    renderHoldingInsights(metrics);
     renderHoldings(metrics);
     renderHistory();
   }
@@ -1438,7 +1607,7 @@
     holdingForm.reset();
     $("holding-id").value = "";
     $("holding-type").value = "stock";
-    $("holding-bucket").value = "a500";
+    $("holding-bucket").value = "other";
     $("holding-currency").value = "CNY";
     $("holding-pricing-mode").value = "auto";
     $("holding-direction").value = "1";
@@ -1749,6 +1918,14 @@
     button.addEventListener("click", () => {
       activeFilter = button.dataset.filter;
       document.querySelectorAll(".filter-button").forEach((node) => node.classList.toggle("active", node === button));
+      renderHoldings(portfolioMetrics());
+    });
+  });
+
+  document.querySelectorAll(".group-mode-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      holdingGroupingMode = button.dataset.groupMode;
+      document.querySelectorAll(".group-mode-button").forEach((node) => node.classList.toggle("active", node === button));
       renderHoldings(portfolioMetrics());
     });
   });
