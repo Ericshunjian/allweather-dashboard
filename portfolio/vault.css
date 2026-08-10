@@ -372,6 +372,8 @@ input::placeholder {
   #holding-quantity,
   #holding-price,
   #holding-entry-price,
+  #holding-annual-rate,
+  #holding-delta,
   #holding-underlying-price,
   #holding-fixed-value,
   #trade-amount,

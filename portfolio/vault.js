@@ -589,7 +589,7 @@
       const publishedRate = numeric(item.quoteDailyChangeRate, NaN);
       return {
         text: proxyMove
-          ? `${proxyMove.referenceLabel} · ${proxyMove.name} ${(proxyMove.rate * 100).toFixed(2)}% · 净值 ${navDate}`
+          ? `${proxyMove.referenceLabel} · ${proxyMove.name} ${formatPercent(proxyMove.rate, 2)} · 净值 ${navDate}`
           : Number.isFinite(publishedRate)
             ? `最近净值 ${navDate} · 日涨跌 ${formatPercent(publishedRate, 2)}${fundUsesEstimatedShares(item) ? " · 估算份额" : ""}`
           : `待更新 · 净值 ${navDate}${fundUsesEstimatedShares(item) ? " · 估算份额" : ""}`,
@@ -626,7 +626,13 @@
   }
 
   function formatPercent(value, digits = 1) {
+    if (!moneyValuesVisible) return "******";
     return Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(digits)}%` : "--";
+  }
+
+  function formatMultiple(value, digits = 2) {
+    if (!moneyValuesVisible) return "******";
+    return Number.isFinite(Number(value)) ? `${Number(value).toFixed(digits)}x` : "--";
   }
 
   function formatNumber(value, digits = 2) {
@@ -1394,9 +1400,9 @@
   function renderSummary(metrics) {
     setSummaryValue("total-assets", formatMoney(metrics.totalAssets));
     setSummaryValue("daily-pnl", `${metrics.estimatedDailyCount ? "估 " : ""}${formatMoney(metrics.dailyPnl)}`, metrics.dailyPnl);
-    setSummaryValue("gross-exposure", metrics.totalAssets > 0
-      ? `${(metrics.grossExposure / metrics.totalAssets).toFixed(2)}x`
-      : "0.00x");
+    setSummaryValue("gross-exposure", formatMultiple(metrics.totalAssets > 0
+      ? metrics.grossExposure / metrics.totalAssets
+      : 0));
     updateSummaryPrivacyButton();
     $("included-count").textContent = `${metrics.includedCount}项计入净资产`;
     $("derivative-count").textContent = `${metrics.derivativeCount}项衍生品`;
