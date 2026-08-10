@@ -64,6 +64,7 @@
   let localVaultHasUserChanges = false;
   let historyPeriod = "day";
   let quoteRefreshTimer = null;
+  let summaryValuesVisible = false;
   const expandedHoldingGroups = new Set();
 
   const $ = (id) => document.getElementById(id);
@@ -481,6 +482,7 @@
     clearInterval(quoteRefreshTimer);
     sessionKey = null;
     vault = null;
+    summaryValuesVisible = false;
     if (syncDialog?.open) syncDialog.close();
     app.hidden = true;
     lockScreen.hidden = false;
@@ -805,7 +807,7 @@
   }
 
   function fundUsesEstimatedShares(item) {
-    return item.assetType === "fund" && item.fundInputMode === "amount";
+    return ["fund", "etf"].includes(item.assetType) && item.fundInputMode === "amount";
   }
 
   function fundNeedsCalibration(item) {
@@ -830,6 +832,10 @@
       : (quote.quoteLabel || "已更新");
     item.quoteError = "";
     item.resolvedQuoteId = quoteId;
+    if (item.assetType === "etf" && /黄金|\bGOLD\b/i.test(`${item.name || ""} ${item.code || ""} ${quote.name || ""}`)) {
+      if (!item.underlyingName) item.underlyingName = "黄金";
+      item.strategyBucket = "gold";
+    }
   }
 
   async function refreshQuotes(options = {}) {
@@ -928,13 +934,27 @@
     if (value < 0) element.classList.add("negative");
   }
 
+  function setSummaryValue(id, value, signedValue = null) {
+    const element = $(id);
+    element.textContent = summaryValuesVisible ? value : "******";
+    element.classList.remove("positive", "negative");
+    if (summaryValuesVisible && signedValue !== null) setSignedClass(element, signedValue);
+  }
+
+  function updateSummaryPrivacyButton() {
+    const button = $("toggle-summary-privacy");
+    button.textContent = summaryValuesVisible ? "隐藏" : "显示";
+    button.setAttribute("aria-pressed", String(summaryValuesVisible));
+    button.setAttribute("aria-label", summaryValuesVisible ? "隐藏资产摘要" : "显示资产摘要");
+  }
+
   function renderSummary(metrics) {
-    $("total-assets").textContent = formatMoney(metrics.totalAssets);
-    $("daily-pnl").textContent = formatMoney(metrics.dailyPnl);
-    setSignedClass($("daily-pnl"), metrics.dailyPnl);
-    $("gross-exposure").textContent = metrics.totalAssets > 0
+    setSummaryValue("total-assets", formatMoney(metrics.totalAssets));
+    setSummaryValue("daily-pnl", formatMoney(metrics.dailyPnl), metrics.dailyPnl);
+    setSummaryValue("gross-exposure", metrics.totalAssets > 0
       ? `${(metrics.grossExposure / metrics.totalAssets).toFixed(2)}x`
-      : "0.00x";
+      : "0.00x");
+    updateSummaryPrivacyButton();
     $("included-count").textContent = `${metrics.includedCount}项计入净资产`;
     $("derivative-count").textContent = `${metrics.derivativeCount}项衍生品`;
     const automatic = vault.holdings.filter((item) => item.pricingMode === "auto");
@@ -1017,7 +1037,7 @@
       empty.className = "bar-empty";
       empty.textContent = metrics.totalAssets > 0 ? "目标数据暂不可用" : "录入资产后显示偏离";
       container.appendChild(empty);
-      $("largest-gap").textContent = "待录入";
+      setSummaryValue("largest-gap", "待录入");
       return;
     }
     const actual = { gold: 0, dividend: 0, a500: 0, bond_futures: 0, cash: 0 };
@@ -1041,7 +1061,7 @@
         `${formatPercent(actual[key])} / ${formatPercent(targets[key])}`
       ));
     });
-    $("largest-gap").textContent = `${bucketLabels[largest.key]} ${largest.gap >= 0 ? "+" : ""}${formatPercent(largest.gap)}`;
+    setSummaryValue("largest-gap", `${bucketLabels[largest.key]} ${largest.gap >= 0 ? "+" : ""}${formatPercent(largest.gap)}`);
   }
 
   function platformClassification(item) {
@@ -1283,6 +1303,8 @@
       : formatQuotePrice(item.price, item.currency);
     appendCell(row, "最新价", latestPrice);
     appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
+    const dailyCell = appendCell(row, "当日变动", formatMoney(calc.dailyPnlCny));
+    setSignedClass(dailyCell, calc.dailyPnlCny);
     appendCell(row, "风险敞口", formatMoney(calc.exposureCny));
     appendCell(row, "资产权重", metrics.totalAssets > 0 && item.includeNav ? formatPercent(calc.valueCny / metrics.totalAssets) : "--");
     const pnlCell = appendCell(row, "累计盈亏", formatMoney(calc.pnlCny));
@@ -1297,7 +1319,7 @@
     quote.textContent = item.pricingMode === "auto" ? (item.quoteStatus || "待刷新") : "本地估值";
     if (item.pricingMode === "auto") {
       const calibration = fundUsesEstimatedShares(item) && item.fundCalibratedAt
-        ? `校准 ${String(item.fundCalibratedAt).slice(0, 10)} · 净值 ${formatQuotePrice(item.fundCalibrationNav, item.currency)}`
+        ? `校准 ${String(item.fundCalibratedAt).slice(0, 10)} · ${item.assetType === "etf" ? "价格" : "净值"} ${formatQuotePrice(item.fundCalibrationNav, item.currency)}`
         : "";
       const details = [item.resolvedQuoteId, calibration, item.quoteError].filter(Boolean).join(" · ");
       if (details) quote.title = details;
@@ -1365,12 +1387,15 @@
 
     const totals = group.rows.reduce((sum, { calc }) => ({
       value: sum.value + calc.valueCny,
+      daily: sum.daily + calc.dailyPnlCny,
       exposure: sum.exposure + calc.exposureCny,
       pnl: sum.pnl + calc.pnlCny
-    }), { value: 0, exposure: 0, pnl: 0 });
+    }), { value: 0, daily: 0, exposure: 0, pnl: 0 });
     appendCell(row, "持仓", `${group.rows.length}笔`);
     appendCell(row, "最新价", "展开查看");
     appendCell(row, "当前价值", formatMoney(totals.value));
+    const dailyCell = appendCell(row, "当日变动", formatMoney(totals.daily));
+    setSignedClass(dailyCell, totals.daily);
     appendCell(row, "风险敞口", formatMoney(totals.exposure));
     appendCell(row, "资产权重", metrics.totalAssets > 0 ? formatPercent(totals.value / metrics.totalAssets) : "--");
     const pnlCell = appendCell(row, "累计盈亏", formatMoney(totals.pnl));
@@ -1589,11 +1614,12 @@
 
   function setFieldVisibility() {
     const type = $("holding-type").value;
-    const amountFund = type === "fund" && $("holding-fund-input-mode").value === "amount";
+    const supportsAmountInput = ["fund", "etf"].includes(type);
+    const amountFund = supportsAmountInput && $("holding-fund-input-mode").value === "amount";
     if (amountFund) $("holding-pricing-mode").value = "auto";
     const pricing = $("holding-pricing-mode").value;
     const derivative = type === "futures" || type === "option";
-    document.querySelectorAll(".fund-mode-field").forEach((node) => { node.hidden = type !== "fund"; });
+    document.querySelectorAll(".fund-mode-field").forEach((node) => { node.hidden = !supportsAmountInput; });
     document.querySelectorAll(".fund-amount-field").forEach((node) => { node.hidden = !amountFund; });
     document.querySelectorAll(".quantity-field").forEach((node) => { node.hidden = amountFund || ["fixed", "interest"].includes(pricing); });
     document.querySelectorAll(".price-field").forEach((node) => { node.hidden = amountFund || ["fixed", "interest"].includes(pricing); });
@@ -1603,6 +1629,9 @@
     document.querySelectorAll(".multiplier-field").forEach((node) => { node.hidden = !derivative; });
     document.querySelectorAll(".option-field").forEach((node) => { node.hidden = type !== "option"; });
     $("pricing-mode-field").hidden = amountFund;
+    $("share-price-note").textContent = type === "etf"
+      ? "ETF按最新市场价格估算；份额仅作为金额换算口径"
+      : "场外基金不是盘中实时价；QDII净值通常会更晚";
     updateFundCalibrationHint();
   }
 
@@ -1614,8 +1643,8 @@
       && Math.abs(amount - numeric(existing.fundSeedAmount)) < 0.005
       && existing.fundCalibratedAt;
     hint.textContent = unchanged
-      ? `已按 ${String(existing.fundCalibratedAt).slice(0, 10)} 净值 ${formatQuotePrice(existing.fundCalibrationNav, existing.currency)} 估算；修改金额会重新校准`
-      : "保存时按最新已公布净值估算份额";
+      ? `已按 ${String(existing.fundCalibratedAt).slice(0, 10)} ${existing.assetType === "etf" ? "价格" : "净值"} ${formatQuotePrice(existing.fundCalibrationNav, existing.currency)} 估算；修改金额会重新校准`
+      : `保存时按最新${$("holding-type").value === "etf" ? "价格" : "已公布净值"}估算份额`;
   }
 
   function applyTypeDefaults() {
@@ -1640,9 +1669,9 @@
       $("holding-pricing-mode").value = "auto";
       $("holding-multiplier").value = "1";
       $("holding-include-nav").checked = true;
-    } else if (type === "fund") {
+    } else if (["fund", "etf"].includes(type)) {
       $("holding-fund-input-mode").value = "amount";
-      $("holding-currency").value = "CNY";
+      if (type === "fund") $("holding-currency").value = "CNY";
       $("holding-pricing-mode").value = "auto";
       $("holding-multiplier").value = "1";
       $("holding-include-nav").checked = true;
@@ -1712,9 +1741,9 @@
     const keepExistingQuoteId = Boolean(existing.id)
       && existing.assetType === assetType
       && String(existing.code || "").trim().toUpperCase() === code;
-    const fundInputMode = assetType === "fund" ? $("holding-fund-input-mode").value : "";
+    const fundInputMode = ["fund", "etf"].includes(assetType) ? $("holding-fund-input-mode").value : "";
     const fundSeedAmount = numeric($("holding-fund-seed-amount").value);
-    const amountFund = assetType === "fund" && fundInputMode === "amount";
+    const amountFund = ["fund", "etf"].includes(assetType) && fundInputMode === "amount";
     const resetFundCalibration = amountFund && (
       !fundUsesEstimatedShares(existing)
       || Math.abs(fundSeedAmount - numeric(existing.fundSeedAmount)) >= 0.005
@@ -1767,7 +1796,7 @@
     if (estimatedFund) {
       if (item.pricingMode !== "auto") return "金额估算模式需要使用自动行情";
       if (!(item.fundSeedAmount > 0)) return "请填写平台显示的当前金额";
-      if (!inferQuoteId(item)) return "无法识别基金代码，请填写6位基金代码";
+      if (!inferQuoteId(item)) return item.assetType === "etf" ? "无法识别 ETF 代码，请检查代码" : "无法识别基金代码，请填写6位基金代码";
       return "";
     }
     if (["fixed", "interest"].includes(item.pricingMode)) {
@@ -1794,21 +1823,21 @@
     const calibratingFund = fundNeedsCalibration(item);
     if (calibratingFund) {
       saveButton.disabled = true;
-      saveButton.textContent = "正在读取净值";
+      saveButton.textContent = item.assetType === "etf" ? "正在读取行情" : "正在读取净值";
       $("holding-form-error").textContent = "";
       try {
         const quoteId = inferQuoteId(item);
         const quote = await fetchQuote(quoteId);
         applyQuoteToHolding(item, quote, quoteId);
-        if (!item.name) item.name = quote.name || `基金 ${item.code}`;
+        if (!item.name) item.name = quote.name || `${item.assetType === "etf" ? "ETF" : "基金"} ${item.code}`;
       } catch (calibrationError) {
-        $("holding-form-error").textContent = `暂时没有取到基金净值：${calibrationError?.message || "请稍后重试"}`;
+        $("holding-form-error").textContent = `暂时没有取到${item.assetType === "etf" ? " ETF 行情" : "基金净值"}：${calibrationError?.message || "请稍后重试"}`;
         saveButton.disabled = false;
         saveButton.textContent = "保存资产";
         return;
       }
     }
-    if (!item.name) item.name = item.quoteName || `基金 ${item.code}`;
+    if (!item.name) item.name = item.quoteName || `${item.assetType === "etf" ? "ETF" : "基金"} ${item.code}`;
     const index = vault.holdings.findIndex((holding) => holding.id === item.id);
     if (index >= 0) vault.holdings[index] = item;
     else vault.holdings.push(item);
@@ -1818,7 +1847,7 @@
     renderAll();
     saveButton.disabled = false;
     saveButton.textContent = "保存资产";
-    showToast(calibratingFund ? `已按净值 ${formatQuotePrice(item.fundCalibrationNav, item.currency)} 估算 ${formatNumber(item.quantity)} 份` : (index >= 0 ? "资产已更新" : "资产已添加"));
+    showToast(calibratingFund ? `已按${item.assetType === "etf" ? "价格" : "净值"} ${formatQuotePrice(item.fundCalibrationNav, item.currency)} 估算 ${formatNumber(item.quantity)} 份` : (index >= 0 ? "资产已更新" : "资产已添加"));
     if (item.pricingMode === "auto" && !calibratingFund) refreshQuotes({ silent: true });
   }
 
@@ -1973,6 +2002,10 @@
     $("toggle-password").setAttribute("aria-label", visible ? "显示密码" : "隐藏密码");
   });
   $("lock-vault").addEventListener("click", lockVault);
+  $("toggle-summary-privacy").addEventListener("click", () => {
+    summaryValuesVisible = !summaryValuesVisible;
+    renderAll();
+  });
   $("refresh-quotes").addEventListener("click", () => refreshQuotes());
   $("add-holding").addEventListener("click", () => openHoldingDialog());
   $("open-sync").addEventListener("click", openSyncDialog);

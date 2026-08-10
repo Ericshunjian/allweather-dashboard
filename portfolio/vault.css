@@ -338,6 +338,35 @@ input::placeholder {
   font-weight: 700;
 }
 
+.summary-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 18px;
+  margin-bottom: 8px;
+}
+
+.summary-label-row span {
+  margin-bottom: 0;
+}
+
+.summary-privacy-button {
+  min-height: 24px;
+  padding: 2px 8px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.summary-privacy-button:hover {
+  color: var(--blue);
+  border-color: var(--blue);
+}
+
 .summary-item strong {
   display: block;
   overflow-wrap: anywhere;
@@ -1271,7 +1300,7 @@ dialog::backdrop {
   }
 
   .holdings-table {
-    min-width: 980px;
+    min-width: 1080px;
   }
 
   .history-visual-grid {

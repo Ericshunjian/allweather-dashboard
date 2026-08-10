@@ -53,23 +53,26 @@
 
     <section class="summary-grid" aria-label="资产摘要">
       <article class="summary-item">
-        <span>总资产</span>
-        <strong id="total-assets">¥0</strong>
+        <div class="summary-label-row">
+          <span>总资产</span>
+          <button id="toggle-summary-privacy" class="summary-privacy-button" type="button" aria-pressed="false" aria-label="显示资产摘要">显示</button>
+        </div>
+        <strong id="total-assets">******</strong>
         <small id="included-count">0项计入净资产</small>
       </article>
       <article class="summary-item">
         <span>当日变动</span>
-        <strong id="daily-pnl">¥0</strong>
+        <strong id="daily-pnl">******</strong>
         <small id="quote-coverage">行情覆盖 0/0</small>
       </article>
       <article class="summary-item">
         <span>风险资产敞口</span>
-        <strong id="gross-exposure">0.00x</strong>
+        <strong id="gross-exposure">******</strong>
         <small id="derivative-count">0项衍生品</small>
       </article>
       <article class="summary-item">
         <span>策略偏离</span>
-        <strong id="largest-gap">待录入</strong>
+        <strong id="largest-gap">******</strong>
         <small>严格ERC · 10%目标波动率</small>
       </article>
     </section>
@@ -162,6 +165,7 @@
               <th>持仓</th>
               <th>最新价</th>
               <th>当前价值</th>
+              <th>当日变动</th>
               <th>风险敞口</th>
               <th>资产权重</th>
               <th>累计盈亏</th>
@@ -223,7 +227,7 @@
           <input id="holding-account" type="text" maxlength="40" placeholder="例如：招商证券">
         </label>
         <label>资产名称
-          <input id="holding-name" type="text" maxlength="60" placeholder="场外基金可留空自动识别">
+          <input id="holding-name" type="text" maxlength="60" placeholder="场外基金 / ETF 可留空自动识别">
         </label>
         <label>底层资产（合并显示）
           <input id="holding-underlying-name" type="text" maxlength="40" placeholder="例如：标普500">
@@ -247,12 +251,12 @@
             <option value="other">其他</option>
           </select>
         </label>
-        <label class="fund-mode-field">基金录入方式
+        <label class="fund-mode-field">录入方式
           <select id="holding-fund-input-mode">
             <option value="amount">只有当前金额（自动估算份额）</option>
-            <option value="shares">我知道基金份额</option>
+            <option value="shares">我知道份额</option>
           </select>
-          <small class="field-hint">金额模式只需基金代码和当前金额</small>
+          <small class="field-hint">金额模式只需代码和当前金额</small>
         </label>
         <label>策略分类
           <select id="holding-bucket">
@@ -282,7 +286,7 @@
         <label class="fund-amount-field">平台显示的当前金额
           <input id="holding-fund-seed-amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例如：12580.36">
           <small id="fund-calibration-hint" class="field-hint">保存时按最新已公布净值估算份额</small>
-          <small class="field-hint">场外基金不是盘中实时价；QDII净值通常会更晚</small>
+          <small id="share-price-note" class="field-hint">场外基金不是盘中实时价；QDII净值通常会更晚</small>
         </label>
         <label class="quantity-field">数量 / 份额 / 手数
           <input id="holding-quantity" type="number" min="0" step="any" inputmode="decimal">
