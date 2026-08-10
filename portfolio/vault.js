@@ -1448,8 +1448,9 @@
     }
     const actual = { gold: 0, dividend: 0, a500: 0, bond_futures: 0, cash: 0 };
     metrics.rows.forEach(({ item, calc }) => {
-      const bucket = item.strategyBucket;
-      if (!(bucket in actual)) return;
+      const category = strategyClassification(item);
+      if (!category) return;
+      const bucket = category.key;
       if (bucket === "cash") actual[bucket] += calc.valueCny / metrics.totalAssets;
       else actual[bucket] += calc.exposureCny / metrics.totalAssets;
     });
@@ -1519,10 +1520,19 @@
     return Boolean(inferredEquityMarket(item)) || /全球/i.test(descriptor);
   }
 
+  function isTencentDomesticBroadProxy(item) {
+    const descriptor = [item.name, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
+    const code = String(item.code || "").trim().toUpperCase().replace(/\s+/g, "");
+    return /腾讯控股|TENCENT(?:\s+HOLDINGS)?/i.test(descriptor)
+      || /^(?:HK)?0*700(?:\.HK)?$/.test(code);
+  }
+
   function strategyClassification(item) {
     const bucket = item.strategyBucket;
     if (!["gold", "dividend", "a500", "bond_futures", "cash"].includes(bucket)) return null;
-    if (["dividend", "a500"].includes(bucket) && ((item.currency || "CNY") !== "CNY" || hasOverseasEquityDescriptor(item))) return null;
+    const overseasEquity = (item.currency || "CNY") !== "CNY" || hasOverseasEquityDescriptor(item);
+    const domesticBroadProxy = bucket === "a500" && isTencentDomesticBroadProxy(item);
+    if (["dividend", "a500"].includes(bucket) && overseasEquity && !domesticBroadProxy) return null;
     return { key: bucket, label: bucketLabels[bucket] };
   }
 
