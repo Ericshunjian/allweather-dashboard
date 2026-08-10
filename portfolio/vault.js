@@ -1282,10 +1282,10 @@
       ? "--"
       : formatQuotePrice(item.price, item.currency);
     appendCell(row, "最新价", latestPrice);
-    appendCell(row, "当前价值", item.includeNav ? `${fundUsesEstimatedShares(item) ? "≈" : ""}${formatMoney(calc.valueCny)}` : "不计入");
+    appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
     appendCell(row, "风险敞口", formatMoney(calc.exposureCny));
     appendCell(row, "资产权重", metrics.totalAssets > 0 && item.includeNav ? formatPercent(calc.valueCny / metrics.totalAssets) : "--");
-    const pnlCell = appendCell(row, "累计盈亏", `${fundUsesEstimatedShares(item) ? "≈" : ""}${formatMoney(calc.pnlCny)}`);
+    const pnlCell = appendCell(row, "累计盈亏", formatMoney(calc.pnlCny));
     setSignedClass(pnlCell, calc.pnlCny);
     if (fundUsesEstimatedShares(item)) {
       pnlCell.title = `自 ${String(item.fundCalibratedAt || "首次录入").slice(0, 10)} 金额校准后估算`;
@@ -1370,10 +1370,10 @@
     }), { value: 0, exposure: 0, pnl: 0 });
     appendCell(row, "持仓", `${group.rows.length}笔`);
     appendCell(row, "最新价", "展开查看");
-    appendCell(row, "当前价值", `${estimatedFunds ? "≈" : ""}${formatMoney(totals.value)}`);
-    appendCell(row, "风险敞口", `${estimatedFunds ? "≈" : ""}${formatMoney(totals.exposure)}`);
+    appendCell(row, "当前价值", formatMoney(totals.value));
+    appendCell(row, "风险敞口", formatMoney(totals.exposure));
     appendCell(row, "资产权重", metrics.totalAssets > 0 ? formatPercent(totals.value / metrics.totalAssets) : "--");
-    const pnlCell = appendCell(row, "累计盈亏", `${estimatedFunds ? "≈" : ""}${formatMoney(totals.pnl)}`);
+    const pnlCell = appendCell(row, "累计盈亏", formatMoney(totals.pnl));
     setSignedClass(pnlCell, totals.pnl);
 
     const automatic = group.rows.filter(({ item }) => item.pricingMode === "auto");
