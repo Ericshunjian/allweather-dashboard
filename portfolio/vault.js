@@ -572,6 +572,13 @@
       && fundNavDate(item) !== chinaDate();
   }
 
+  function futuresDailyQuotePending(item) {
+    return item.assetType === "futures"
+      && item.pricingMode === "auto"
+      && Boolean(item.quoteTime)
+      && chinaDate(item.quoteTime) !== chinaDate();
+  }
+
   function fundQuotePresentation(item) {
     const navDate = fundNavDate(item);
     if (item.pricingMode !== "auto" || !holdingUsesFundNav(item) || !navDate) {
@@ -750,7 +757,9 @@
     } else if (item.assetType === "futures") {
       nativeExposure = direction * quantity * price * multiplier;
       nativePnl = direction * quantity * (price - entry) * multiplier;
-      nativeDailyPnl = direction * quantity * (price - previousClose) * multiplier;
+      nativeDailyPnl = futuresDailyQuotePending(item)
+        ? 0
+        : direction * quantity * (price - previousClose) * multiplier;
       nativeValue = item.includeNav ? nativePnl : 0;
     } else if (item.assetType === "option") {
       const optionDelta = numeric(item.delta);
@@ -804,6 +813,7 @@
       dailyPnlPending,
       dailyPnlEstimated,
       dailyPnlCarried,
+      futuresDailyQuotePending: futuresDailyQuotePending(item),
       intradayProxyMove
     };
   }
@@ -2129,7 +2139,8 @@
     if (calc.dailyPnlPending) dailyCell.title = `最近净值日期 ${fundNavDate(item)}，当日盈亏暂不计算`;
     else {
       setSignedClass(dailyCell, calc.dailyPnlCny);
-      if (calc.dailyPnlCarried) dailyCell.title = `沿用最近公布净值 ${fundNavDate(item)} 的当日涨跌；新交易日参考行情或净值可用后自动替换`;
+      if (calc.futuresDailyQuotePending) dailyCell.title = `最近期货行情为 ${chinaDate(item.quoteTime)}；国债期货无夜盘，新交易日行情出现前当日盈亏按0计算`;
+      else if (calc.dailyPnlCarried) dailyCell.title = `沿用最近公布净值 ${fundNavDate(item)} 的当日涨跌；新交易日参考行情或净值可用后自动替换`;
       else if (calc.dailyPnlEstimated) {
         dailyCell.title = calc.intradayProxyMove.usQdii
           ? `按 ${calc.intradayProxyMove.name} 上一美股交易日涨跌 ${formatPercent(calc.intradayProxyMove.rate, 2)} 估算；正式净值公布后自动替换`
@@ -2140,7 +2151,11 @@
     appendCell(row, "资产权重", metrics.totalAssets > 0 && item.includeNav ? formatPercent(calc.valueCny / metrics.totalAssets) : "--");
     const pnlCell = appendCell(row, "累计盈亏", formatMoney(calc.pnlCny));
     setSignedClass(pnlCell, calc.pnlCny);
-    if (fundUsesEstimatedShares(item)) {
+    if (item.assetType === "futures") {
+      pnlCell.title = moneyValuesVisible
+        ? `按（最新价 ${formatQuotePrice(item.price, item.currency)} − 成本价 ${formatQuotePrice(item.entryPrice, item.currency)}）× ${formatNumber(item.quantity)}手 × ${formatNumber(item.multiplier)}计算`
+        : "显示敏感数据后查看期货盈亏计算口径";
+    } else if (fundUsesEstimatedShares(item)) {
       pnlCell.title = `自 ${String(item.fundCalibratedAt || "首次录入").slice(0, 10)} 金额校准后估算`;
     }
 
