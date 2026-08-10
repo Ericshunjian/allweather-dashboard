@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-08-10T11:09:42",
+  "year": 2017,
+  "capital": 5000000,
+  "entrypoint": "index.html",
+  "strategies": [
+    {
+      "id": "risk-parity",
+      "label": "约束风险平价 v2",
+      "path": "index.html"
+    },
+    {
+      "id": "strict-risk-parity",
+      "label": "严格等风险贡献",
+      "path": "strict-risk-parity/index.html"
+    },
+    {
+      "id": "sharpe-direct",
+      "label": "Sharpe 直配",
+      "path": "sharpe/index.html"
+    },
+    {
+      "id": "risk-review",
+      "label": "风险复盘",
+      "path": "risk-review/index.html"
+    }
+  ],
+  "risk_review": {
+    "path": "risk-review/index.html",
+    "data_as_of": "2026-08-07",
+    "excel_path": "downloads/allweather_risk_review.xlsx",
+    "excel_data_as_of": "2026-07-31"
+  },
+  "not_found_page": "404.html",
+  "platforms": [
+    "Cloudflare Pages",
+    "GitHub Pages"
+  ]
+}

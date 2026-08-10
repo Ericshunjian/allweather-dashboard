@@ -1,0 +1,1 @@
+{"source":{"equity":"中证A500全收益指数 000510CNY010（项目行情文件）","bond_futures":"10年期国债期货主力连续 T.CFE（新浪原始价与项目复权序列）"},"lookback":125,"method":"两资产逆波动权重（等风险贡献）","rebalance":"月末最后一个交易日","cash_yield":0.02,"futures_multiplier":10000.0,"margin_rate":0.02,"bond_vol_scale":1.0,"source_latest_date":"2026-08-07"}

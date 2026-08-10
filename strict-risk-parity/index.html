@@ -1,0 +1,1892 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="data:,">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>严格等风险贡献 — 成立于 2017 年</title>
+    <link rel="preconnect" href="https://cdn.plot.ly" crossorigin>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background:
+                radial-gradient(circle at top right, rgba(188,108,37,.10), transparent 24%),
+                radial-gradient(circle at left 20%, rgba(38,70,83,.08), transparent 20%),
+                #f5efe6;
+            color: #102030;
+            min-height: 100vh;
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+        .header {
+            background: #fffaf2;
+            padding: 22px 30px 18px;
+            border-bottom: 1px solid rgba(16,32,48,0.10);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            flex-wrap: wrap;
+            box-shadow: 0 12px 30px rgba(16,32,48,.05);
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #102030;
+        }
+        .header .date {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        .metrics-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            padding: 16px 30px;
+            background: transparent;
+        }
+        .dashboard-loading {
+            margin: 0 30px 12px;
+            padding: 10px 12px;
+            border-left: 3px solid #264653;
+            background: rgba(255,250,242,0.82);
+            color: #52606d;
+            font-size: 13px;
+        }
+        .metric {
+            background: #fffaf2;
+            border: 1px solid rgba(16,32,48,0.10);
+            border-radius: 16px;
+            padding: 16px;
+            text-align: center;
+            transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+            box-shadow: 0 12px 30px rgba(16,32,48,.05);
+        }
+        .metric:hover {
+            transform: translateY(-2px);
+            border-color: rgba(188,108,37,.22);
+            box-shadow: 0 16px 36px rgba(16,32,48,.07);
+        }
+        .metric .label {
+            font-size: 11px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+        .metric .value {
+            font-size: 22px;
+            font-weight: 700;
+        }
+        .metric .value.positive { color: #1f7a4c; }
+        .metric .value.negative { color: #b43f3f; }
+        .metric .value.neutral { color: #264653; }
+        .dashboard {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 16px;
+            padding: 16px 30px 30px;
+        }
+        .card {
+            background: #fffaf2;
+            border: 1px solid rgba(16,32,48,0.10);
+            border-radius: 18px;
+            padding: 18px;
+            overflow: hidden;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-shadow: 0 12px 30px rgba(16,32,48,.05);
+            min-width: 0;
+        }
+        .card:hover {
+            border-color: rgba(188,108,37,.22);
+            box-shadow: 0 16px 36px rgba(16,32,48,.07);
+        }
+        .card.full-width {
+            grid-column: span 2;
+        }
+        .card h3 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #264653;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(16,32,48,0.08);
+        }
+        .plotly-chart { width: 100%; min-width: 0; max-width: 100%; }
+        .weight-history-chart { min-height: 340px; }
+        .volatility-history-chart { min-height: 320px; }
+        .dashboard > #rebalance-section {
+            grid-column: 1 / -1;
+            min-width: 0;
+        }
+        .chart-note {
+            margin: 0 0 10px;
+            color: #5f6b7a;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .allocation-panel {
+            margin: 0 30px 16px;
+            padding: 20px;
+            background: #fffaf2;
+            border: 1px solid rgba(16,32,48,0.10);
+            border-radius: 8px;
+        }
+        .allocation-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(16,32,48,0.08);
+        }
+        .allocation-toolbar h2 {
+            font-size: 20px;
+            color: #102030;
+        }
+        .allocation-subtitle,
+        .allocation-meta,
+        .allocation-note {
+            color: #6b7280;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .capital-input-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #6b7280;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .capital-input-wrap {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 7px 10px;
+            background: #fff;
+            border: 1px solid rgba(16,32,48,0.14);
+            border-radius: 6px;
+            color: #102030;
+            font-weight: 700;
+        }
+        .capital-input-wrap input {
+            width: 130px;
+            border: 0;
+            outline: 0;
+            color: #102030;
+            background: transparent;
+            text-align: right;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .allocation-meta {
+            padding: 12px 0 8px;
+        }
+        .volatility-control {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-top: 14px;
+        }
+        .volatility-control-label {
+            color: #6b7280;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .volatility-segments {
+            display: inline-grid;
+            grid-template-columns: repeat(5, minmax(54px, auto));
+            gap: 4px;
+            padding: 4px;
+            border: 1px solid rgba(16,32,48,0.12);
+            border-radius: 7px;
+            background: rgba(38,70,83,0.04);
+        }
+        .volatility-segments button {
+            min-height: 32px;
+            padding: 5px 10px;
+            border: 0;
+            border-radius: 5px;
+            background: transparent;
+            color: #52606d;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .volatility-segments button:hover {
+            background: rgba(255,255,255,0.78);
+        }
+        .volatility-segments button.active {
+            background: #264653;
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(16,32,48,0.16);
+        }
+        .allocation-head,
+        .allocation-row {
+            display: grid;
+            grid-template-columns: minmax(170px, 1.3fr) minmax(90px, .55fr) minmax(150px, .9fr) minmax(150px, 1fr);
+            gap: 16px;
+            align-items: center;
+        }
+        .allocation-head {
+            padding: 8px 12px;
+            background: rgba(38,70,83,0.06);
+            color: #6b7280;
+            font-size: 11px;
+        }
+        .allocation-row {
+            min-height: 60px;
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(16,32,48,0.08);
+        }
+        .allocation-asset,
+        .allocation-cell {
+            min-width: 0;
+        }
+        .allocation-asset strong,
+        .allocation-cell strong {
+            display: block;
+            color: #102030;
+            font-size: 14px;
+        }
+        .allocation-asset span,
+        .allocation-execution span {
+            display: block;
+            margin-top: 3px;
+            color: #6b7280;
+            font-size: 11px;
+            font-weight: 400;
+        }
+        .allocation-summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 14px;
+        }
+        .allocation-summary.with-volatility {
+            grid-template-columns: repeat(4, 1fr);
+        }
+        .allocation-summary > div {
+            padding: 12px;
+            background: rgba(38,70,83,0.05);
+            border-radius: 6px;
+        }
+        .allocation-summary span,
+        .allocation-summary small {
+            display: block;
+            color: #6b7280;
+            font-size: 11px;
+        }
+        .allocation-summary strong {
+            display: inline-block;
+            margin: 5px 6px 2px 0;
+            color: #102030;
+            font-size: 17px;
+        }
+        .allocation-note {
+            margin-top: 10px;
+        }
+        .footer {
+            text-align: center;
+            padding: 16px;
+            color: #6b7280;
+            font-size: 12px;
+        }
+        .rebalance-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .rebalance-entry {
+            border: 1px solid rgba(16,32,48,0.10);
+            border-radius: 14px;
+            background: #fff;
+            overflow: hidden;
+        }
+        .rebalance-entry summary {
+            list-style: none;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #102030;
+        }
+        .rebalance-entry summary::-webkit-details-marker {
+            display: none;
+        }
+        .rebalance-trigger {
+            font-size: 12px;
+            color: #8d5524;
+            background: rgba(188,108,37,0.10);
+            border: 1px solid rgba(188,108,37,0.18);
+            border-radius: 999px;
+            padding: 4px 10px;
+            white-space: nowrap;
+        }
+        .rebalance-content {
+            padding: 0 16px 16px;
+            max-width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .rebalance-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .rebalance-table th,
+        .rebalance-table td {
+            padding: 10px 8px;
+            border-top: 1px solid rgba(16,32,48,0.08);
+            text-align: right;
+            white-space: nowrap;
+        }
+        .rebalance-table th {
+            color: #6b7280;
+            font-weight: 500;
+        }
+        .rebalance-table td:first-child,
+        .rebalance-table td:nth-child(2),
+        .rebalance-table th:first-child,
+        .rebalance-table th:nth-child(2) {
+            text-align: left;
+        }
+        .empty-state {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        @media (max-width: 900px) {
+            .dashboard {
+                grid-template-columns: minmax(0, 1fr);
+                padding: 16px;
+            }
+            .metrics-bar {
+                padding: 16px;
+            }
+            .card.full-width {
+                grid-column: auto;
+            }
+            .allocation-panel {
+                margin: 0 16px 16px;
+                padding: 16px;
+            }
+            .allocation-toolbar {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+            .capital-input-label {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .allocation-head {
+                display: none;
+            }
+            .volatility-control {
+                align-items: stretch;
+                flex-direction: column;
+                gap: 6px;
+            }
+            .volatility-segments {
+                width: 100%;
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+            }
+            .volatility-segments button {
+                min-width: 0;
+                padding: 5px 3px;
+            }
+            .allocation-row {
+                grid-template-columns: 1fr 1fr;
+                gap: 10px 16px;
+                padding: 14px 4px;
+            }
+            .allocation-asset {
+                grid-column: 1 / -1;
+            }
+            .allocation-cell::before {
+                content: attr(data-label);
+                display: block;
+                margin-bottom: 3px;
+                color: #6b7280;
+                font-size: 10px;
+            }
+            .allocation-summary {
+                grid-template-columns: 1fr;
+            }
+            .allocation-summary.with-volatility {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="strategy-variant-nav" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px 18px;background:#fffaf2;color:#102030;border-bottom:1px solid rgba(16,32,48,.08);box-shadow:0 10px 24px rgba(16,32,48,.04);">
+  <span style="font-size:12px;opacity:.72;">页面</span>
+  <a href="../" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid rgba(16,32,48,.10);color:#102030;font-weight:600;">约束风险平价 v2</a>
+  <a href="./" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:#e9dcc6;border:1px solid rgba(16,32,48,.10);color:#102030;font-weight:600;">严格等风险贡献</a>
+  <a href="../sharpe/" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid rgba(16,32,48,.10);color:#102030;font-weight:600;">Sharpe 直配</a>
+  <a href="../risk-review/" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid rgba(16,32,48,.10);color:#102030;font-weight:600;">风险复盘</a>
+</div>
+
+
+<div class="header">
+    <h1 id="dashboard-title">📊 严格等风险贡献（整数期货） — 成立于 2017 年</h1>
+    <div id="dashboard-date" class="date">
+        策略成立日: 2017-01-01 · 数据截至: 2026-08-07 · 生成时间: 2026-08-10 11:08
+    </div>
+</div>
+
+<div style="padding: 12px 30px 0; display: flex; justify-content: flex-end;">
+    <div style="display: flex; align-items: center; gap: 12px; background: #fffaf2; border: 1px solid rgba(16,32,48,0.10); border-radius: 14px; padding: 10px 12px; box-shadow: 0 12px 30px rgba(16,32,48,.05);">
+        <span style="color: #6b7280; font-size: 13px;">策略成立年份:</span>
+        <select id="calc-year" style="background: #fff; border: 1px solid rgba(16,32,48,0.14); color: #102030; padding: 6px 10px; border-radius: 8px; font-size: 14px; font-weight: 700;">
+            <option value="2017" selected>2017</option><option value="2018" >2018</option><option value="2019" >2019</option><option value="2020" >2020</option><option value="2021" >2021</option><option value="2022" >2022</option><option value="2023" >2023</option><option value="2024" >2024</option><option value="2025" >2025</option><option value="2026" >2026</option>
+        </select>
+    </div>
+</div>
+
+<div id="metrics-section" class="metrics-bar">
+    <div class="metric">
+        <div class="label">区间累计收益</div>
+        <div class="value positive">352.41%</div>
+    </div>
+    <div class="metric">
+        <div class="label">年化收益</div>
+        <div class="value positive">17.71%</div>
+    </div>
+    <div class="metric">
+        <div class="label">年化波动</div>
+        <div class="value neutral">9.89%</div>
+    </div>
+    <div class="metric">
+        <div class="label">夏普比率</div>
+        <div class="value neutral">1.59</div>
+    </div>
+    <div class="metric">
+        <div class="label">最大回撤</div>
+        <div class="value negative">-11.94%</div>
+    </div>
+    <div class="metric">
+        <div class="label">VaR (95%)</div>
+        <div class="value negative">-0.91%</div>
+    </div>
+    <div class="metric">
+        <div class="label">名义杠杆</div>
+        <div class="value neutral">4.0x</div>
+    </div>
+    <div class="metric">
+        <div class="label">资金占用率</div>
+        <div class="value neutral">59.6%</div>
+    </div>
+</div>
+<div id="dashboard-loading" class="dashboard-loading" hidden>正在加载历史数据...</div>
+
+
+<section class="allocation-panel">
+    <div class="allocation-toolbar">
+        <div>
+            <h2>当前配置建议</h2>
+            <div class="allocation-subtitle">默认采用10%波动率上限；四类资产同比缩放，剩余资金保留现金。</div>
+        </div>
+        <label class="capital-input-label">
+            <span>当前可投入资金</span>
+            <span class="capital-input-wrap">¥ <input id="calc-capital" type="number" min="1" step="10000" value="5000000"></span>
+        </label>
+    </div>
+
+    <div class="volatility-control">
+        <span class="volatility-control-label">波动率上限</span>
+        <div class="volatility-segments" role="group" aria-label="波动率上限">
+            <button type="button" data-vol-target="0.08" aria-pressed="false">8%</button>
+            <button type="button" data-vol-target="0.10" class="active" aria-pressed="true">10%</button>
+            <button type="button" data-vol-target="0.12" aria-pressed="false">12%</button>
+            <button type="button" data-vol-target="0.14" aria-pressed="false">14%</button>
+            <button type="button" data-vol-target="none" aria-pressed="false">不限制</button>
+        </div>
+    </div>
+
+    <div id="calc-meta" class="allocation-meta"></div>
+    <div class="allocation-head">
+        <span>资产</span><span>相对权重</span><span>建议金额</span><span>执行数量</span>
+    </div>
+    <div id="calc-results"></div>
+    <div class="allocation-summary with-volatility">
+        <div><span>预计资金占用</span><strong id="calc-margin-occupy">¥0</strong><small id="calc-margin-ratio">0%</small></div>
+        <div><span>预留现金</span><strong id="calc-remaining-cash">¥0</strong></div>
+        <div><span>总名义敞口</span><strong id="calc-total-nominal">¥0</strong><small id="calc-nominal-leverage">0.0x</small></div>
+
+        <div><span>取整后预计波动</span><strong id="calc-forecast-vol">0%</strong><small id="calc-risk-scale">缩放 0%</small></div>
+
+    </div>
+    <div class="allocation-note">相对权重保持四类资产各25%理论风险贡献；国债期货取整数手后，预计波动率和风险贡献会有小幅偏差。</div>
+    <div class="allocation-note">现货显示实际买入金额；国债期货显示名义合约金额和预计保证金。</div>
+    <div class="allocation-note">波动率档位会同步更新历史指标、净值、回撤和收益归因；上限作用于每次调仓时的事前预测，实际实现波动率可能偏离。</div>
+</section>
+
+
+<div class="dashboard">
+    <!-- 1. 净值曲线 -->
+    <div class="card full-width">
+        <h3>📈 起始以来净值走势 (杠杆后 vs 名义)</h3>
+        <div id="benchmark-note" style="font-size: 12px; line-height: 1.6; color: #5f6b7a; margin: 2px 0 12px 0;">业绩基准: 80债/20股 = 80% 中债-新综合财富(总值)指数 + 20% 沪深300全收益指数(H00300)；60债/40股 = 60% 中债-新综合财富(总值)指数 + 40% 沪深300全收益指数(H00300)，均按日收益复合。</div>
+        <div id="chart-nav" class="plotly-chart"></div>
+    </div>
+
+    <div class="card full-width">
+        <h3>📈 股债期货风险平价</h3>
+        <div id="equity-bond-futures-note" style="font-size: 12px; line-height: 1.6; color: #5f6b7a; margin: 2px 0 12px 0;"></div>
+        <div id="chart-equity-bond-futures" class="plotly-chart"></div>
+    </div>
+
+    <!-- 2. 回撤 -->
+    <div class="card">
+        <h3>📉 回撤走势</h3>
+        <div id="chart-drawdown" class="plotly-chart"></div>
+    </div>
+
+    <!-- 3. 月度收益 -->
+    <div class="card">
+        <h3>📊 月度收益</h3>
+        <div id="chart-monthly" class="plotly-chart"></div>
+    </div>
+
+    <!-- 4. 权重配比 -->
+    <div class="card">
+        <h3>🎯 当前持仓权重</h3>
+        <div id="chart-weights" class="plotly-chart"></div>
+    </div>
+
+    <!-- 5. 相关性矩阵 -->
+    <div class="card">
+        <h3>🔗 资产相关性 (近125日)</h3>
+        <div id="chart-corr" class="plotly-chart"></div>
+    </div>
+
+    <!-- 6. 各资产区间表现 -->
+    <div class="card">
+        <h3>📊 各资产区间走势</h3>
+        <div id="chart-assets" class="plotly-chart"></div>
+    </div>
+
+    <!-- 7. 月度归因 -->
+    <div class="card">
+        <h3>🧩 月度收益归因</h3>
+        <div id="chart-attribution" class="plotly-chart"></div>
+    </div>
+    <div class="card">
+        <h3>📅 年度收益</h3>
+        <div id="chart-yearly" class="plotly-chart"></div>
+    </div>
+    <div class="card">
+        <h3>🧩 年度收益归因</h3>
+        <div id="chart-yearly-attribution" class="plotly-chart"></div>
+    </div>
+    <div class="card">
+        <h3>📉 组合波动率时间序列</h3>
+        <div class="chart-note">实现波动率为组合日收益的250个交易日滚动样本标准差并按√252年化；事前预测波动率使用每次调仓时可得的近125日协方差和连续目标敞口，延续显示至下次调仓。</div>
+        <div id="chart-volatility-history" class="plotly-chart volatility-history-chart"></div>
+    </div>
+    <div class="card">
+        <h3>📐 资产权重时间序列</h3>
+        <div class="chart-note">四类风险资产按每日实际名义敞口占总名义敞口的比例展示，国债期货采用合约名义面值；每天四项合计100%。</div>
+        <div id="chart-weight-history" class="plotly-chart weight-history-chart"></div>
+    </div>
+    <div id="rebalance-section">
+
+        <div class="card full-width">
+            <h3>🔁 月度调仓建议</h3>
+            <div class="empty-state">正在加载所选历史场景...</div>
+        </div>
+
+    </div>
+</div>
+
+<div class="footer">
+    全天候策略 — 严格等风险贡献 + 整数期货回放 · Python 自动生成
+</div>
+
+<script>
+    var plotBg = '#fffaf2';
+    var paperBg = '#fffaf2';
+    var gridColor = 'rgba(16,32,48,0.10)';
+    var fontColor = '#102030';
+    var baseLayout = {
+        paper_bgcolor: paperBg,
+        plot_bgcolor: plotBg,
+        font: { color: fontColor, size: 11 },
+        margin: { t: 10, b: 40, l: 50, r: 20 },
+        xaxis: { gridcolor: gridColor, zerolinecolor: gridColor },
+        yaxis: { gridcolor: gridColor, zerolinecolor: gridColor },
+        legend: { orientation: 'h', y: -0.15, font: { size: 10 } },
+    };
+
+</script>
+
+<script>
+    const dashboardDataManifest = {"strategy_mode": "strict", "default_year": "2017", "default_scenario": "10", "data_version": "20260810110857271381", "year_urls": {"2017": {"08": "../data/strict-risk-parity/2017/08.json", "10": "../data/strict-risk-parity/2017/10.json", "12": "../data/strict-risk-parity/2017/12.json", "14": "../data/strict-risk-parity/2017/14.json", "unlimited": "../data/strict-risk-parity/2017/unlimited.json"}, "2018": {"08": "../data/strict-risk-parity/2018/08.json", "10": "../data/strict-risk-parity/2018/10.json", "12": "../data/strict-risk-parity/2018/12.json", "14": "../data/strict-risk-parity/2018/14.json", "unlimited": "../data/strict-risk-parity/2018/unlimited.json"}, "2019": {"08": "../data/strict-risk-parity/2019/08.json", "10": "../data/strict-risk-parity/2019/10.json", "12": "../data/strict-risk-parity/2019/12.json", "14": "../data/strict-risk-parity/2019/14.json", "unlimited": "../data/strict-risk-parity/2019/unlimited.json"}, "2020": {"08": "../data/strict-risk-parity/2020/08.json", "10": "../data/strict-risk-parity/2020/10.json", "12": "../data/strict-risk-parity/2020/12.json", "14": "../data/strict-risk-parity/2020/14.json", "unlimited": "../data/strict-risk-parity/2020/unlimited.json"}, "2021": {"08": "../data/strict-risk-parity/2021/08.json", "10": "../data/strict-risk-parity/2021/10.json", "12": "../data/strict-risk-parity/2021/12.json", "14": "../data/strict-risk-parity/2021/14.json", "unlimited": "../data/strict-risk-parity/2021/unlimited.json"}, "2022": {"08": "../data/strict-risk-parity/2022/08.json", "10": "../data/strict-risk-parity/2022/10.json", "12": "../data/strict-risk-parity/2022/12.json", "14": "../data/strict-risk-parity/2022/14.json", "unlimited": "../data/strict-risk-parity/2022/unlimited.json"}, "2023": {"08": "../data/strict-risk-parity/2023/08.json", "10": "../data/strict-risk-parity/2023/10.json", "12": "../data/strict-risk-parity/2023/12.json", "14": "../data/strict-risk-parity/2023/14.json", "unlimited": "../data/strict-risk-parity/2023/unlimited.json"}, "2024": {"08": "../data/strict-risk-parity/2024/08.json", "10": "../data/strict-risk-parity/2024/10.json", "12": "../data/strict-risk-parity/2024/12.json", "14": "../data/strict-risk-parity/2024/14.json", "unlimited": "../data/strict-risk-parity/2024/unlimited.json"}, "2025": {"08": "../data/strict-risk-parity/2025/08.json", "10": "../data/strict-risk-parity/2025/10.json", "12": "../data/strict-risk-parity/2025/12.json", "14": "../data/strict-risk-parity/2025/14.json", "unlimited": "../data/strict-risk-parity/2025/unlimited.json"}, "2026": {"08": "../data/strict-risk-parity/2026/08.json", "10": "../data/strict-risk-parity/2026/10.json", "12": "../data/strict-risk-parity/2026/12.json", "14": "../data/strict-risk-parity/2026/14.json", "unlimited": "../data/strict-risk-parity/2026/unlimited.json"}}, "benchmark_url": "../data/common/benchmark.json", "equity_bond_year_urls": {"2017": "../data/common/equity-bond-futures/2017.json", "2018": "../data/common/equity-bond-futures/2018.json", "2019": "../data/common/equity-bond-futures/2019.json", "2020": "../data/common/equity-bond-futures/2020.json", "2021": "../data/common/equity-bond-futures/2021.json", "2022": "../data/common/equity-bond-futures/2022.json", "2023": "../data/common/equity-bond-futures/2023.json", "2024": "../data/common/equity-bond-futures/2024.json", "2025": "../data/common/equity-bond-futures/2025.json", "2026": "../data/common/equity-bond-futures/2026.json"}};
+    const embeddedYearPayloads = {"2017": {}, "2018": {}, "2019": {}, "2020": {}, "2021": {}, "2022": {}, "2023": {}, "2024": {}, "2025": {}, "2026": {}};
+    const calculatorPayloads = {"2017": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761997, "921446.CSI": 0.25928394418716183, "000510CNY010": 0.1713235839321119, "T.CFE": 3.4838819660969715}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.1644917354092204, "latest_volatility_scale": 0.6079332785396258, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}, "2018": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761997, "921446.CSI": 0.25928394418716183, "000510CNY010": 0.1713235839321119, "T.CFE": 3.4838819660969715}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.1644917354092204, "latest_volatility_scale": 0.6079332785396258, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}, "2019": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761997, "921446.CSI": 0.2592839441871619, "000510CNY010": 0.1713235839321119, "T.CFE": 3.483881966096971}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.1644917354092204, "latest_volatility_scale": 0.6079332785396258, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}, "2020": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761998, "921446.CSI": 0.2592839441871619, "000510CNY010": 0.1713235839321119, "T.CFE": 3.483881966096971}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.1644917354092204, "latest_volatility_scale": 0.6079332785396258, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}, "2021": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761997, "921446.CSI": 0.2592839441871619, "000510CNY010": 0.1713235839321119, "T.CFE": 3.483881966096971}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.1644917354092204, "latest_volatility_scale": 0.6079332785396258, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}, "2022": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761997, "921446.CSI": 0.2592839441871619, "000510CNY010": 0.1713235839321119, "T.CFE": 3.4838819660969715}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.1644917354092204, "latest_volatility_scale": 0.6079332785396258, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}, "2023": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761997, "921446.CSI": 0.2592839441871619, "000510CNY010": 0.1713235839321119, "T.CFE": 3.483881966096972}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.16449173540922038, "latest_volatility_scale": 0.6079332785396259, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}, "2024": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761997, "921446.CSI": 0.2592839441871619, "000510CNY010": 0.17132358393211192, "T.CFE": 3.4838819660969715}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.1644917354092204, "latest_volatility_scale": 0.6079332785396258, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}, "2025": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761997, "921446.CSI": 0.2592839441871619, "000510CNY010": 0.1713235839321119, "T.CFE": 3.483881966096971}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.1644917354092204, "latest_volatility_scale": 0.6079332785396258, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}, "2026": {"latest_date": "2026-08-07", "latest_scaled_weights": {"518880.SH": 0.09548944552761997, "921446.CSI": 0.25928394418716183, "000510CNY010": 0.1713235839321119, "T.CFE": 3.4838819660969715}, "latest_target_weights": {"518880.SH": 0.023812954372702838, "921446.CSI": 0.06465967729090454, "000510CNY010": 0.04272431015387205, "T.CFE": 0.8688030581825206}, "latest_target_risk_contributions": {"518880.SH": 0.2500000000178978, "921446.CSI": 0.2500000000119165, "000510CNY010": 0.24999999998589206, "T.CFE": 0.2499999999842936}, "latest_covariance_matrix": [[0.13595683127898867, 0.0205703354841501, 0.03249405120780901, 0.0006595821833248317], [0.0205703354841501, 0.023049044373525857, 0.005439834224525544, 0.00022086573255784383], [0.03249405120780901, 0.005439834224525544, 0.05452162440712113, 0.00021186978758188312], [0.0006595821833248317, 0.00022086573255784383, 0.00021186978758188312, 0.00016103931362962455]], "latest_base_forecast_volatility": 0.1644917354092204, "latest_volatility_scale": 0.6079332785396258, "volatility_target": 0.1, "latest_prices": {"518880.SH": 8.892, "921446.CSI": 6045.66, "000510CNY010": 8496.63, "T.CFE": 109.425}}};
+    const yearPayloadCache = new Map();
+    const assetDefinitions = [{"code": "518880.SH", "name": "华安黄金ETF", "type": "spot", "unit": "份", "margin_rate": 1.0, "multiplier": 1.0, "min_trade_unit": 100.0, "face_value": 0.0, "has_explicit_face_value": false, "cost_rate": 0.0}, {"code": "921446.CSI", "name": "东证红利低波", "type": "spot", "unit": "万元", "margin_rate": 1.0, "multiplier": 1.0, "min_trade_unit": 1.0, "face_value": 0.0, "has_explicit_face_value": false, "cost_rate": 0.0}, {"code": "000510CNY010", "name": "中证A500", "type": "spot", "unit": "万元", "margin_rate": 1.0, "multiplier": 1.0, "min_trade_unit": 1.0, "face_value": 0.0, "has_explicit_face_value": false, "cost_rate": 0.0}, {"code": "T.CFE", "name": "10年期国债期货", "type": "futures", "unit": "手", "margin_rate": 0.02, "multiplier": 10000.0, "min_trade_unit": 1.0, "face_value": 0.0, "has_explicit_face_value": false, "cost_rate": 0.0}];
+    const calculatorStrategyMode = "strict";
+    const calcCapInput = document.getElementById('calc-capital');
+    const calcYearInput = document.getElementById('calc-year');
+    const resultsDiv = document.getElementById('calc-results');
+    const totalNominalDiv = document.getElementById('calc-total-nominal');
+    const calcMeta = document.getElementById('calc-meta');
+    const marginRatioSpan = document.getElementById('calc-margin-ratio');
+    const marginOccupySpan = document.getElementById('calc-margin-occupy');
+    const nominalLeverageSpan = document.getElementById('calc-nominal-leverage');
+    const remainingCashSpan = document.getElementById('calc-remaining-cash');
+    const forecastVolSpan = document.getElementById('calc-forecast-vol');
+    const riskScaleSpan = document.getElementById('calc-risk-scale');
+    const volatilityButtons = [...document.querySelectorAll('[data-vol-target]')];
+    let selectedVolatilityTarget = calculatorStrategyMode === 'strict' ? 0.10 : null;
+
+    function selectedScenarioKey() {
+        if (calculatorStrategyMode !== 'strict') return 'base';
+        if (selectedVolatilityTarget === null) return 'unlimited';
+        return String(Math.round(selectedVolatilityTarget * 100)).padStart(2, '0');
+    }
+
+    function payloadCacheKey(yearValue, scenarioKey = selectedScenarioKey()) {
+        return `${String(yearValue)}|${scenarioKey}`;
+    }
+
+    Object.entries(embeddedYearPayloads || {}).forEach(([yearKey, scenarios]) => {
+        Object.entries(scenarios || {}).forEach(([scenarioKey, payload]) => {
+            yearPayloadCache.set(payloadCacheKey(yearKey, scenarioKey), payload);
+        });
+    });
+
+    function getYearPayload(yearValue, scenarioKey = selectedScenarioKey()) {
+        const selectedKey = String(yearValue || calcYearInput.value || 2017);
+        return yearPayloadCache.get(payloadCacheKey(selectedKey, scenarioKey)) || null;
+    }
+
+    function versionedDataUrl(url) {
+        const dataVersion = dashboardDataManifest.data_version;
+        if (!dataVersion) return url;
+        const separator = String(url).includes('?') ? '&' : '?';
+        return `${url}${separator}v=${encodeURIComponent(dataVersion)}`;
+    }
+
+    async function loadJsonPayload(url) {
+        const requestUrl = versionedDataUrl(url);
+        const response = await fetch(requestUrl, { cache: 'default' });
+        if (!response.ok) throw new Error(`数据加载失败 (${response.status}): ${requestUrl}`);
+        return response.json();
+    }
+
+    async function ensureYearPayload(yearValue, scenarioKey = selectedScenarioKey()) {
+        const yearKey = String(yearValue || dashboardDataManifest.default_year || 2017);
+        const cacheKey = payloadCacheKey(yearKey, scenarioKey);
+        if (yearPayloadCache.has(cacheKey)) return yearPayloadCache.get(cacheKey);
+        const url = dashboardDataManifest.year_urls?.[yearKey]?.[scenarioKey];
+        if (!url) throw new Error(`缺少 ${yearKey} 年 ${scenarioKey} 档历史数据`);
+        const payload = await loadJsonPayload(url);
+        yearPayloadCache.set(cacheKey, payload);
+        return payload;
+    }
+
+    function getCalculatorPayload(yearValue) {
+        const selectedKey = String(yearValue || calcYearInput.value || 2017);
+        return getYearPayload(selectedKey) || calculatorPayloads[selectedKey] || calculatorPayloads[String(2017)] || {};
+    }
+
+    function fmtPct(value, digits = 1) {
+        return `${(value * 100).toFixed(digits)}%`;
+    }
+
+    function fmtCny(value) {
+        return `¥${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    }
+
+    function fmtQty(value, digits = 0) {
+        return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    }
+
+    function calculatePortfolioVolatility(exposures, covariance) {
+        if (!Array.isArray(covariance) || covariance.length !== exposures.length) return null;
+        let variance = 0;
+        for (let i = 0; i < exposures.length; i += 1) {
+            if (!Array.isArray(covariance[i]) || covariance[i].length !== exposures.length) return null;
+            for (let j = 0; j < exposures.length; j += 1) {
+                variance += exposures[i] * exposures[j] * Number(covariance[i][j] || 0);
+            }
+        }
+        return Number.isFinite(variance) && variance >= 0 ? Math.sqrt(variance) : null;
+    }
+
+    function updateCalculator(selectedYear) {
+        const selectedPayload = getCalculatorPayload(selectedYear);
+        const latestPrices = selectedPayload?.latest_prices || {};
+        const targetWeights = selectedPayload?.latest_target_weights || {};
+        const covariance = selectedPayload?.latest_covariance_matrix || [];
+        const latestDate = selectedPayload?.latest_date || '';
+        const capital = Math.max(parseFloat(calcCapInput.value) || 0, 1);
+        const marginUsed = assetDefinitions.reduce((sum, asset) => {
+            const weight = targetWeights[asset.code] || 0;
+            const fundingRate = asset.type === 'futures' ? asset.margin_rate : 1;
+            return sum + weight * fundingRate;
+        }, 0);
+        const targetTotalNominal = marginUsed > 0 ? (capital * 0.98) / marginUsed : 0;
+        const baseExposures = assetDefinitions.map((asset) =>
+            ((targetWeights[asset.code] || 0) * targetTotalNominal) / capital
+        );
+        const baseForecastVol = calculatePortfolioVolatility(baseExposures, covariance);
+        const riskScale = (
+            calculatorStrategyMode === 'strict'
+            && selectedVolatilityTarget !== null
+            && baseForecastVol
+            && baseForecastVol > selectedVolatilityTarget
+        ) ? selectedVolatilityTarget / baseForecastVol : 1;
+        let html = '';
+        let totalNominal = 0;
+        let totalCapitalUsed = 0;
+        const actualExposures = [];
+
+        assetDefinitions.forEach((asset) => {
+            const price = latestPrices[asset.code] || asset.price || 0;
+            const targetWeight = targetWeights[asset.code] || 0;
+            const unit = asset.unit || (asset.type === 'futures' ? '手' : '份');
+            const isAmountProxy = unit === '万元';
+            const targetNominal = targetWeight * targetTotalNominal * riskScale;
+            const calcPrice = asset.type === 'futures'
+                ? price
+                : (asset.has_explicit_face_value ? asset.face_value : price);
+            const rawQty = calcPrice > 0 ? targetNominal / (calcPrice * asset.multiplier) : 0;
+            const roundedQty = asset.min_trade_unit > 0
+                ? Math.round(rawQty / asset.min_trade_unit) * asset.min_trade_unit
+                : rawQty;
+            const actualNominal = isAmountProxy
+                ? targetNominal
+                : Math.abs(roundedQty * calcPrice * asset.multiplier);
+            const actualCapitalUsed = asset.type === 'futures'
+                ? actualNominal * asset.margin_rate
+                : actualNominal;
+            const amountText = asset.type === 'futures'
+                ? `${fmtCny(actualNominal)} 名义`
+                : fmtCny(actualNominal);
+            const executionText = asset.type === 'futures'
+                ? `${fmtQty(roundedQty, 0)} 手<span>保证金 ${fmtCny(actualCapitalUsed)}</span>`
+                : isAmountProxy
+                    ? `按金额配置`
+                    : `${fmtQty(roundedQty, 0)} ${unit}`;
+
+            totalNominal += actualNominal;
+            totalCapitalUsed += actualCapitalUsed;
+            actualExposures.push(actualNominal / capital);
+
+            html += `
+            <div class="allocation-row">
+                <div class="allocation-asset"><strong>${asset.name}</strong><span>${asset.code}</span></div>
+                <div class="allocation-cell" data-label="${calculatorStrategyMode === 'strict' ? '相对权重' : '建议权重'}"><strong>${fmtPct(targetWeight)}</strong></div>
+                <div class="allocation-cell" data-label="建议金额"><strong>${amountText}</strong></div>
+                <div class="allocation-cell allocation-execution" data-label="执行数量"><strong>${executionText}</strong></div>
+            </div>`;
+        });
+
+        resultsDiv.innerHTML = html;
+        const actualForecastVol = calculatePortfolioVolatility(actualExposures, covariance);
+        if (calculatorStrategyMode === 'strict') {
+            const targetLabel = selectedVolatilityTarget === null
+                ? '不限制波动率'
+                : `${fmtPct(selectedVolatilityTarget, 0)}波动率上限`;
+            const baseVolLabel = baseForecastVol === null ? '--' : fmtPct(baseForecastVol, 1);
+            calcMeta.innerText = `${targetLabel} · 当前预测 ${baseVolLabel} · 同比缩放 ${fmtPct(riskScale, 0)} · 数据截至 ${latestDate}`;
+        } else {
+            calcMeta.innerText = `建议依据：${selectedYear} 年成立路径 · 数据截至 ${latestDate}`;
+        }
+        totalNominalDiv.innerText = fmtCny(totalNominal);
+        marginOccupySpan.innerText = fmtCny(totalCapitalUsed);
+        const usageRatio = capital > 0 ? (totalCapitalUsed / capital) : 0;
+        marginRatioSpan.innerText = fmtPct(usageRatio);
+        remainingCashSpan.innerText = fmtCny(Math.max(capital - totalCapitalUsed, 0));
+        nominalLeverageSpan.innerText = (capital > 0 ? totalNominal / capital : 0).toFixed(1) + 'x';
+        if (forecastVolSpan) forecastVolSpan.innerText = actualForecastVol === null ? '--' : fmtPct(actualForecastVol, 2);
+        if (riskScaleSpan) riskScaleSpan.innerText = `缩放 ${fmtPct(riskScale, 0)}`;
+    }
+
+    volatilityButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const rawValue = button.dataset.volTarget;
+            selectedVolatilityTarget = rawValue === 'none' ? null : Number(rawValue);
+            volatilityButtons.forEach((item) => {
+                const active = item === button;
+                item.classList.toggle('active', active);
+                item.setAttribute('aria-pressed', String(active));
+            });
+            updateCalculator(calcYearInput.value);
+            if (typeof scheduleDashboardRerender === 'function') scheduleDashboardRerender();
+        });
+    });
+</script>
+
+
+<script>
+    const defaultYearKey = String(2017);
+    let benchmarkPayload = {};
+    let equityBondFuturesPayload = {"source": {"equity": "中证A500全收益指数 000510CNY010（项目行情文件）", "bond_futures": "10年期国债期货主力连续 T.CFE（新浪原始价与项目复权序列）"}, "lookback": 125, "method": "两资产逆波动权重（等风险贡献）", "rebalance": "月末最后一个交易日", "cash_yield": 0.02, "futures_multiplier": 10000.0, "margin_rate": 0.02, "bond_vol_scale": 1.0, "source_latest_date": "2026-08-07", "years": {}};
+    const strategyTitle = "严格等风险贡献（整数期货）";
+    const strategyDocumentTitle = "严格等风险贡献";
+    const metricsSection = document.getElementById('metrics-section');
+    const rebalanceSection = document.getElementById('rebalance-section');
+    const dashboardTitle = document.getElementById('dashboard-title');
+    const dashboardDate = document.getElementById('dashboard-date');
+    const equityBondFuturesNote = document.getElementById('equity-bond-futures-note');
+    const dashboardLoading = document.getElementById('dashboard-loading');
+    let benchmarkLoadPromise = null;
+    const equityBondLoadPromises = new Map();
+    let dashboardRenderSequence = 0;
+
+    function setDashboardLoading(isLoading, message = '正在加载历史数据...') {
+        if (dashboardLoading) {
+            dashboardLoading.hidden = !isLoading;
+            dashboardLoading.textContent = message;
+        }
+        document.body.setAttribute('aria-busy', String(isLoading));
+    }
+
+    async function ensureBenchmarkPayload() {
+        if ((benchmarkPayload.dates || []).length) return benchmarkPayload;
+        if (!dashboardDataManifest.benchmark_url) return benchmarkPayload;
+        if (!benchmarkLoadPromise) {
+            benchmarkLoadPromise = loadJsonPayload(dashboardDataManifest.benchmark_url).then((payload) => {
+                benchmarkPayload = payload;
+                return payload;
+            });
+        }
+        return benchmarkLoadPromise;
+    }
+
+    async function ensureEquityBondFuturesPayload(yearValue) {
+        const yearKey = String(yearValue || defaultYearKey);
+        if (equityBondFuturesPayload.years?.[yearKey]) return equityBondFuturesPayload.years[yearKey];
+        const url = dashboardDataManifest.equity_bond_year_urls?.[yearKey];
+        if (!url) return null;
+        if (!equityBondLoadPromises.has(yearKey)) {
+            equityBondLoadPromises.set(yearKey, loadJsonPayload(url).then((payload) => {
+                equityBondFuturesPayload.years = equityBondFuturesPayload.years || {};
+                equityBondFuturesPayload.years[yearKey] = payload;
+                return payload;
+            }));
+        }
+        return equityBondLoadPromises.get(yearKey);
+    }
+
+    function fmtPct(value, digits = 2) {
+        return `${(value * 100).toFixed(digits)}%`;
+    }
+
+    function fmtNum(value, digits = 0) {
+        return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+    }
+
+    function fmtCny(value, digits = 0) {
+        return `¥${fmtNum(value, digits)}`;
+    }
+
+    function percentile(values, p) {
+        if (!values.length) return 0;
+        const sorted = [...values].sort((a, b) => a - b);
+        const idx = (sorted.length - 1) * p;
+        const lower = Math.floor(idx);
+        const upper = Math.ceil(idx);
+        if (lower === upper) return sorted[lower];
+        const weight = idx - lower;
+        return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+    }
+
+    function sampleStd(values) {
+        if (values.length <= 1) return 0;
+        const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+        const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1);
+        return Math.sqrt(Math.max(variance, 0));
+    }
+
+    function rollingAnnualizedVolatility(values, windowSize = 250) {
+        const result = [];
+        const buffer = [];
+        let sum = 0;
+        let sumSquares = 0;
+        values.forEach((rawValue) => {
+            const value = Number(rawValue) || 0;
+            buffer.push(value);
+            sum += value;
+            sumSquares += value * value;
+            if (buffer.length > windowSize) {
+                const removed = buffer.shift();
+                sum -= removed;
+                sumSquares -= removed * removed;
+            }
+            if (buffer.length < windowSize) {
+                result.push(null);
+                return;
+            }
+            const count = buffer.length;
+            const variance = Math.max((sumSquares - (sum * sum) / count) / (count - 1), 0);
+            result.push(Math.sqrt(variance) * Math.sqrt(252));
+        });
+        return result;
+    }
+
+    function monthKey(dateStr) {
+        return dateStr.slice(0, 7);
+    }
+
+    function yearKey(dateStr) {
+        return dateStr.slice(0, 4);
+    }
+
+    function buildBenchmarkCumulative(dates, returns = benchmarkPayload.returns) {
+        const retByDate = new Map((benchmarkPayload.dates || []).map((date, idx) => [date, returns[idx]]));
+        let carry = 1;
+        return dates.map((date) => {
+            const ret = retByDate.get(date);
+            if (Number.isFinite(ret)) {
+                carry *= (1 + ret);
+            }
+            return carry;
+        });
+    }
+
+    function buildAlignedEquityBondFutures(dates, selectedYearKey) {
+        const path = equityBondFuturesPayload.years?.[String(selectedYearKey)] || {};
+        const navByDate = new Map((path.dates || []).map((date, idx) => [date, path.cumulative[idx]]));
+        const trendByDate = new Map((path.dates || []).map((date, idx) => [date, path.trend_line[idx]]));
+        const weightsByDate = new Map((path.dates || []).map((date, idx) => [date, path.weights[idx]]));
+        const contractsByDate = new Map((path.dates || []).map((date, idx) => [date, path.contracts[idx]]));
+        let nav = 1;
+        let trend = 1;
+        let weights = [0.5, 0.5];
+        let contracts = 0;
+        const cumulative = [];
+        const alignedTrend = [];
+        const alignedWeights = [];
+        const alignedContracts = [];
+        dates.forEach((date) => {
+            const nextNav = navByDate.get(date);
+            const nextTrend = trendByDate.get(date);
+            const nextWeights = weightsByDate.get(date);
+            const nextContracts = contractsByDate.get(date);
+            if (Number.isFinite(nextNav)) nav = nextNav;
+            if (Number.isFinite(nextTrend)) trend = nextTrend;
+            if (Array.isArray(nextWeights) && nextWeights.length === 2) weights = nextWeights;
+            if (Number.isFinite(nextContracts)) contracts = nextContracts;
+            cumulative.push(nav);
+            alignedTrend.push(trend);
+            alignedWeights.push(weights);
+            alignedContracts.push(contracts);
+        });
+        return {
+            cumulative,
+            trendLine: alignedTrend,
+            weights: alignedWeights,
+            contracts: alignedContracts,
+            latestWeights: path.latest_weights || { equity: 0.5, bond: 0.5 },
+            latestAllocation: path.latest_allocation || {},
+            initialCapital: path.initial_capital || 0,
+        };
+    }
+
+    function linkPeriodContributions(rows, returns, componentCount) {
+        const linked = Array(componentCount).fill(0);
+        for (let idx = 0; idx < returns.length; idx += 1) {
+            const row = rows[idx] || [];
+            const periodRet = returns[idx] || 0;
+            for (let compIdx = 0; compIdx < componentCount; compIdx += 1) {
+                linked[compIdx] = linked[compIdx] * (1 + periodRet) + (row[compIdx] || 0);
+            }
+        }
+        return linked;
+    }
+
+    function buildMetricsHtml(metrics) {
+        return `
+        <div class="metric">
+            <div class="label">区间累计收益</div>
+            <div class="value ${metrics.ytd_total >= 0 ? 'positive' : 'negative'}">${fmtPct(metrics.ytd_total, 2)}</div>
+        </div>
+        <div class="metric">
+            <div class="label">年化收益</div>
+            <div class="value ${metrics.ann_ret >= 0 ? 'positive' : 'negative'}">${fmtPct(metrics.ann_ret, 2)}</div>
+        </div>
+        <div class="metric">
+            <div class="label">年化波动</div>
+            <div class="value neutral">${fmtPct(metrics.ann_vol, 2)}</div>
+        </div>
+        <div class="metric">
+            <div class="label">夏普比率</div>
+            <div class="value neutral">${metrics.sharpe.toFixed(2)}</div>
+        </div>
+        <div class="metric">
+            <div class="label">最大回撤</div>
+            <div class="value negative">${fmtPct(metrics.max_dd, 2)}</div>
+        </div>
+        <div class="metric">
+            <div class="label">VaR (95%)</div>
+            <div class="value negative">${fmtPct(metrics.var_95, 2)}</div>
+        </div>
+        <div class="metric">
+            <div class="label">名义杠杆</div>
+            <div class="value neutral">${metrics.nominal_leverage.toFixed(1)}x</div>
+        </div>
+        <div class="metric">
+            <div class="label">资金占用率</div>
+            <div class="value neutral">${fmtPct(metrics.capital_usage_ratio, 1)}</div>
+        </div>`;
+    }
+
+    function buildRebalanceHtml(records) {
+        if (!records.length) {
+            return `<div class="card full-width"><h3>月度调仓建议</h3><div class="empty-state">当前回放区间暂无月度调仓建议。</div></div>`;
+        }
+
+        const grouped = new Map();
+        records.forEach((record) => {
+            if (!grouped.has(record.date)) grouped.set(record.date, []);
+            grouped.get(record.date).push(record);
+        });
+
+        const dates = Array.from(grouped.keys()).sort().reverse();
+        const sections = dates.map((date, idx) => {
+            const rows = grouped.get(date);
+            const trigger = rows[0].trigger || '调仓日';
+            const body = rows.map((row) => {
+                const isAmount = row.display_mode === 'amount';
+                const deltaValue = isAmount ? row.delta_nominal : row.delta_qty;
+                const deltaClass = deltaValue > 0 ? 'positive' : deltaValue < 0 ? 'negative' : 'neutral';
+                const currentDisplay = isAmount
+                    ? fmtCny(row.current_nominal, 0)
+                    : `${fmtNum(row.current_qty, 0)} ${row.unit}`;
+                const targetDisplay = isAmount
+                    ? fmtCny(row.target_nominal, 0)
+                    : `${fmtNum(row.target_qty, 0)} ${row.unit}`;
+                const deltaDisplay = isAmount
+                    ? `${deltaValue >= 0 ? '+' : ''}${fmtCny(Math.abs(deltaValue), 0)}`
+                    : `${deltaValue >= 0 ? '+' : ''}${fmtNum(deltaValue, 0)} ${row.unit}`;
+                return `
+                <tr>
+                    <td>${row.asset_name}</td>
+                    <td>${row.code}</td>
+                    <td>${currentDisplay}</td>
+                    <td>${targetDisplay}</td>
+                    <td class="${deltaClass}">${deltaDisplay}</td>
+                    <td>${fmtPct(row.target_weight, 1)}</td>
+                </tr>`;
+            }).join('');
+            return `
+            <details class="rebalance-entry"${idx === 0 ? ' open' : ''}>
+                <summary>
+                    <span>${date}</span>
+                    <span class="rebalance-trigger">${trigger}</span>
+                </summary>
+                <div class="rebalance-content">
+                    <table class="rebalance-table">
+                        <thead>
+                            <tr>
+                                <th>资产名称</th>
+                                <th>代码</th>
+                                <th>当前持仓</th>
+                                <th>建议持仓</th>
+                                <th>调仓变化</th>
+                                <th>目标权重</th>
+                            </tr>
+                        </thead>
+                        <tbody>${body}</tbody>
+                    </table>
+                </div>
+            </details>`;
+        }).join('');
+
+        return `<div class="card full-width"><h3>月度调仓建议</h3><div class="rebalance-list">${sections}</div></div>`;
+    }
+
+    function getSelectedYearKey() {
+        return String(calcYearInput.value || defaultYearKey);
+    }
+
+    function getSimulationContext(yearKey) {
+        const payload = getYearPayload(yearKey);
+        const assetCodes = assetDefinitions.map((asset) => asset.code);
+        const assetNames = assetDefinitions.map((asset) => asset.name);
+
+        return {
+            latest_date: payload.latest_date,
+            asset_codes: assetCodes,
+            asset_names: assetNames,
+            assets: assetDefinitions,
+            simulation: payload.simulation,
+            latest_correlation_matrix: payload.latest_correlation_matrix || [],
+        };
+    }
+
+    function simulateDashboard(capital, selectedYearKey) {
+        const payload = getSimulationContext(selectedYearKey);
+        const dates = payload.simulation.dates;
+        const adjustedRows = payload.simulation.adjusted_prices;
+        const executionRows = payload.simulation.execution_prices;
+        const assetCodes = payload.asset_codes;
+        const assetNames = payload.asset_names;
+        const assets = Object.fromEntries(payload.assets.map((asset) => [asset.code, asset]));
+        const planByDate = Object.fromEntries(payload.simulation.rebalance_plans.map((plan) => [plan.date, plan]));
+
+        let totalCash = capital;
+        let availableCash = capital;
+        let lockedMargin = 0;
+        const positions = {};
+        const history = [];
+        const weightsHistory = [];
+        const forecastVolatilityHistory = [];
+        let currentForecastVolatility = null;
+        const rebalanceRecords = [];
+
+        function getNav(priceMap = null) {
+            let nav = totalCash;
+            assetCodes.forEach((code) => {
+                const pos = positions[code];
+                if (!pos || !pos.shares) return;
+                if (pos.type === 'spot') {
+                    const price = priceMap ? priceMap[code] : pos.price;
+                    nav += pos.shares * price * assets[code].multiplier;
+                }
+            });
+            return nav;
+        }
+
+        function recordSnapshot(date, dailyInterest = null) {
+            let grossSpot = 0;
+            let grossFutures = 0;
+            const previousSameDay = history.length && history[history.length - 1].date === date
+                ? history[history.length - 1]
+                : null;
+            const resolvedDailyInterest = dailyInterest ?? previousSameDay?.daily_interest ?? 0;
+            const snapshot = {
+                date,
+                available_cash: availableCash,
+                locked_margin: lockedMargin,
+                total_cash: totalCash,
+                nav: getNav(),
+                daily_interest: resolvedDailyInterest,
+            };
+            assetCodes.forEach((code) => {
+                const pos = positions[code];
+                if (!pos || !pos.shares) return;
+                const asset = assets[code];
+                const nominalPrice = pos.type === 'futures' ? (pos.face_price ?? pos.price) : pos.price;
+                const nominal = pos.shares * nominalPrice * asset.multiplier;
+                snapshot[`${code}_nominal`] = nominal;
+                snapshot[`${code}_shares`] = pos.shares;
+                if (pos.type === 'spot') {
+                    grossSpot += Math.abs(nominal);
+                } else {
+                    grossFutures += Math.abs(nominal);
+                }
+            });
+            snapshot.spot_notional = grossSpot;
+            snapshot.futures_notional = grossFutures;
+            snapshot.nominal_exposure = grossSpot + grossFutures;
+            snapshot.capital_used = grossSpot + lockedMargin;
+            snapshot.margin_ratio = snapshot.nominal_exposure > 1e-8 ? snapshot.capital_used / snapshot.nominal_exposure : 0;
+            snapshot.capital_usage_ratio = snapshot.nav > 1e-8 ? snapshot.capital_used / snapshot.nav : 0;
+            snapshot.nominal_leverage = snapshot.nav > 1e-8 ? snapshot.nominal_exposure / snapshot.nav : 0;
+
+            if (history.length && history[history.length - 1].date === date) {
+                history[history.length - 1] = snapshot;
+            } else {
+                history.push(snapshot);
+            }
+        }
+
+        function updatePrices(date, priceMap, executionMap) {
+            let currentMargin = 0;
+            let totalFuturesPnl = 0;
+            assetCodes.forEach((code) => {
+                const pos = positions[code];
+                if (!pos || !pos.shares) return;
+                const newPrice = priceMap[code];
+                const oldPrice = pos.price;
+                const asset = assets[code];
+                if (asset.type === 'futures') {
+                    const contractPrice = executionMap[code];
+                    const oldFacePrice = pos.face_price ?? contractPrice;
+                    const adjustedReturn = Math.abs(oldPrice) > 1e-12 ? (newPrice / oldPrice - 1) : 0;
+                    const pnl = adjustedReturn * oldFacePrice * pos.shares * asset.multiplier;
+                    pos.face_price = contractPrice;
+                    totalFuturesPnl += pnl;
+                    currentMargin += Math.abs(pos.shares * contractPrice * asset.multiplier) * asset.margin_rate;
+                }
+                pos.price = newPrice;
+            });
+            totalCash += totalFuturesPnl;
+            lockedMargin = currentMargin;
+            availableCash = totalCash - lockedMargin;
+            const dailyInterest = Math.max(availableCash, 0) * (payload.simulation.cash_yield / 252.0);
+            totalCash += dailyInterest;
+            availableCash = totalCash - lockedMargin;
+            recordSnapshot(date, dailyInterest);
+        }
+
+        function rebalance(date, priceMap, executionMap, plan) {
+            const nav = getNav(priceMap);
+            const trades = [];
+            assetCodes.forEach((code, idx) => {
+                const asset = assets[code];
+                const currentPrice = priceMap[code];
+                const contractPrice = executionMap[code];
+                const targetNominal = nav * plan.scaled_weights[idx];
+                const calcPrice = asset.type === 'futures'
+                    ? contractPrice
+                    : (asset.has_explicit_face_value ? asset.face_value : currentPrice);
+                const rawTargetQty = calcPrice > 0 ? targetNominal / (calcPrice * asset.multiplier) : 0;
+                const targetQty = Math.round(rawTargetQty / asset.min_trade_unit) * asset.min_trade_unit;
+                const currentQty = positions[code]?.shares || 0;
+                rebalanceRecords.push({
+                    date,
+                    month: date.slice(0, 7),
+                    trigger: plan.trigger,
+                    asset_name: asset.name,
+                    code,
+                    current_qty: currentQty,
+                    raw_target_qty: rawTargetQty,
+                    target_qty: targetQty,
+                    delta_qty: targetQty - currentQty,
+                    unit: asset.type === 'futures' ? '手' : '份',
+                    target_weight: plan.target_weights[idx],
+                    scaled_weight: plan.scaled_weights[idx],
+                    execution_price: contractPrice,
+                    target_nominal: targetQty * contractPrice * asset.multiplier,
+                });
+                if (Math.abs(targetQty - currentQty) >= asset.min_trade_unit - 1e-12) {
+                    trades.push({
+                        code,
+                        diff_shares: targetQty - currentQty,
+                        price: currentPrice,
+                        contract_price: contractPrice,
+                    });
+                }
+            });
+
+
+
+            trades.forEach((trade) => {
+                const asset = assets[trade.code];
+                if (!positions[trade.code]) {
+                    positions[trade.code] = {
+                        shares: 0,
+                        price: trade.price,
+                        type: asset.type,
+                        margin_rate: asset.margin_rate,
+                    };
+                }
+                const feePrice = asset.type === 'futures' ? trade.contract_price : trade.price;
+                const tradeValue = Math.abs(trade.diff_shares * feePrice * asset.multiplier);
+                totalCash -= tradeValue * (asset.cost_rate || 0);
+                if (asset.type === 'spot') {
+                    totalCash -= trade.diff_shares * trade.price * asset.multiplier;
+                }
+                positions[trade.code].shares += trade.diff_shares;
+                positions[trade.code].price = trade.price;
+                if (asset.type === 'futures') {
+                    positions[trade.code].face_price = trade.contract_price;
+                }
+            });
+
+            let postMargin = 0;
+            assetCodes.forEach((code) => {
+                const pos = positions[code];
+                if (!pos || pos.type !== 'futures' || !pos.shares) return;
+                const asset = assets[code];
+                const facePrice = pos.face_price ?? pos.price;
+                postMargin += Math.abs(pos.shares * facePrice * asset.multiplier) * asset.margin_rate;
+            });
+            lockedMargin = postMargin;
+            availableCash = totalCash - lockedMargin;
+            recordSnapshot(date);
+        }
+
+        dates.forEach((date, idx) => {
+            const priceMap = Object.fromEntries(assetCodes.map((code, codeIdx) => [code, adjustedRows[idx][codeIdx]]));
+            const executionMap = Object.fromEntries(assetCodes.map((code, codeIdx) => [code, executionRows[idx][codeIdx]]));
+            const plan = planByDate[date];
+            if (idx === 0 && plan) {
+                rebalance(date, priceMap, executionMap, plan);
+            } else {
+                updatePrices(date, priceMap, executionMap);
+                if (plan) {
+                    rebalance(date, priceMap, executionMap, plan);
+                }
+            }
+
+            if (plan) {
+                const baseForecast = Number(plan.base_forecast_volatility);
+                const scale = Number(plan.volatility_scale);
+                if (Number.isFinite(baseForecast)) {
+                    currentForecastVolatility = baseForecast * (Number.isFinite(scale) ? scale : 1);
+                }
+            }
+            forecastVolatilityHistory.push(currentForecastVolatility);
+
+            let totalNominal = 0;
+            assetCodes.forEach((code) => {
+                const pos = positions[code];
+                if (!pos || !pos.shares) return;
+                const nominalPrice = pos.type === 'futures' ? (pos.face_price ?? pos.price) : pos.price;
+                totalNominal += Math.abs(pos.shares * nominalPrice * assets[code].multiplier);
+            });
+            const dailyWeights = assetCodes.map((code) => {
+                const pos = positions[code];
+                if (!pos || !pos.shares || totalNominal <= 0) return 0;
+                const nominalPrice = pos.type === 'futures' ? (pos.face_price ?? pos.price) : pos.price;
+                return Math.abs(pos.shares * nominalPrice * assets[code].multiplier) / totalNominal;
+            });
+            weightsHistory.push(dailyWeights);
+        });
+
+        const navs = history.map((row) => row.nav);
+        const cumulative = navs.map((nav) => capital > 0 ? nav / capital : 0);
+        const returns = cumulative.map((value, idx) => idx === 0 ? 0 : (cumulative[idx - 1] !== 0 ? value / cumulative[idx - 1] - 1 : 0));
+        const rollingVolatility250 = rollingAnnualizedVolatility(returns, 250);
+        const referenceReturns = payload.simulation.portfolio_returns || [];
+        const referenceCapital = payload.simulation.initial_capital;
+        if (referenceReturns.length === returns.length && Math.abs(capital - referenceCapital) < 1e-8) {
+            const maxReturnGap = returns.reduce(
+                (maxGap, value, idx) => Math.max(maxGap, Math.abs(value - (referenceReturns[idx] || 0))),
+                0
+            );
+            if (maxReturnGap > 1e-10) {
+                console.error(`Frontend/backend return mismatch: max gap=${maxReturnGap}`);
+            }
+        }
+
+        const dailyReturns = adjustedRows.map((row, idx) => row.map((value, codeIdx) => {
+            if (idx === 0) return 0;
+            const prev = adjustedRows[idx - 1][codeIdx];
+            return prev ? value / prev - 1 : 0;
+        }));
+        const shiftedWeights = weightsHistory.map((weights, idx) => idx === 0 ? weightsHistory[0] : weightsHistory[idx - 1]);
+        const nominalReturns = dailyReturns.map((row, idx) => row.reduce((sum, value, codeIdx) => sum + value * shiftedWeights[idx][codeIdx], 0));
+
+        const nominalCumulative = [];
+        let nominalCarry = 1;
+        nominalReturns.forEach((value) => {
+            nominalCarry *= (1 + value);
+            nominalCumulative.push(nominalCarry);
+        });
+
+        const ytdBase = cumulative[0] / (1 + returns[0] || 1);
+        const ytdCumulative = cumulative.map((value) => ytdBase ? value / ytdBase : 0);
+        const ytdNomBase = nominalCumulative[0] / (1 + nominalReturns[0] || 1);
+        const ytdNominal = nominalCumulative.map((value) => ytdNomBase ? value / ytdNomBase : 0);
+
+        let runningMax = -Infinity;
+        const drawdown = ytdCumulative.map((value) => {
+            runningMax = Math.max(runningMax, value);
+            return runningMax > 0 ? (value - runningMax) / runningMax : 0;
+        });
+
+        const nTradingDays = returns.length;
+        const ytdTotal = (ytdCumulative[ytdCumulative.length - 1] || 1) - 1;
+        const annRet = nTradingDays >= 20 ? (ytdCumulative[ytdCumulative.length - 1] || 1) ** (252 / Math.max(nTradingDays, 1)) - 1 : ytdTotal;
+        const annVol = sampleStd(returns) * Math.sqrt(252);
+        const sharpe = annVol > 0 ? (annRet - 0.02) / annVol : 0;
+        const maxDd = drawdown.length ? Math.min(...drawdown) : 0;
+        const var95 = returns.length ? percentile(returns, 0.05) : 0;
+
+        const monthlyReturnsMap = new Map();
+        const monthlyExplainedRowsMap = new Map();
+        const monthlyReturnSeriesMap = new Map();
+        const yearlyReturnsMap = new Map();
+        const yearlyExplainedRowsMap = new Map();
+        const yearlyReturnSeriesMap = new Map();
+        const attributionNames = payload.simulation.attribution_names || [...assetNames, '现金利息', '其他/取整差额'];
+        const attributionColorList = payload.simulation.attribution_colors || ["#d97706", "#059669", "#dc2626", "#2563eb"].concat(['#0891b2', '#7c3aed']);
+        const explainedComponentCount = attributionNames.length;
+        const cashComponentIndex = assetCodes.length;
+        const residualComponentIndex = explainedComponentCount > cashComponentIndex + 1
+            ? explainedComponentCount - 1
+            : cashComponentIndex;
+        const backendContribRows = payload.simulation.daily_contrib || null;
+        returns.forEach((ret, idx) => {
+            const key = monthKey(dates[idx]);
+            const year = yearKey(dates[idx]);
+            const prevMonthlyValue = monthlyReturnsMap.get(key) ?? 1;
+            monthlyReturnsMap.set(key, prevMonthlyValue * (1 + ret));
+            const prevYearlyValue = yearlyReturnsMap.get(year) ?? 1;
+            yearlyReturnsMap.set(year, prevYearlyValue * (1 + ret));
+            const explainedRow = Array(explainedComponentCount).fill(0);
+            const backendRow = backendContribRows ? backendContribRows[idx] : null;
+            if (backendRow) {
+                for (let compIdx = 0; compIdx < explainedComponentCount; compIdx += 1) {
+                    explainedRow[compIdx] = backendRow[compIdx] || 0;
+                }
+            } else {
+                const prevHistory = idx > 0 ? history[idx - 1] : null;
+                const prevNav = prevHistory?.nav || 0;
+                const cashInterest = prevNav > 1e-8 ? ((history[idx]?.daily_interest || 0) / prevNav) : 0;
+                explainedRow[cashComponentIndex] = cashInterest;
+                dailyReturns[idx].forEach((value, codeIdx) => {
+                    if (idx === 0) return;
+                    const prevSnapshot = history[idx - 1] || {};
+                    const prevSnapshotNav = prevSnapshot.nav || 0;
+                    const prevNominal = Math.abs(prevSnapshot[`${assetCodes[codeIdx]}_nominal`] || 0);
+                    const exposure = prevSnapshotNav > 1e-8 ? prevNominal / prevSnapshotNav : 0;
+                    explainedRow[codeIdx] = value * exposure;
+                });
+            }
+            const explainedTotal = explainedRow.reduce((sum, value) => sum + (value || 0), 0);
+            explainedRow[residualComponentIndex] += ret - explainedTotal;
+            if (!monthlyExplainedRowsMap.has(key)) monthlyExplainedRowsMap.set(key, []);
+            monthlyExplainedRowsMap.get(key).push(explainedRow.slice());
+            if (!monthlyReturnSeriesMap.has(key)) monthlyReturnSeriesMap.set(key, []);
+            monthlyReturnSeriesMap.get(key).push(ret);
+            if (!yearlyExplainedRowsMap.has(year)) yearlyExplainedRowsMap.set(year, []);
+            yearlyExplainedRowsMap.get(year).push(explainedRow.slice());
+            if (!yearlyReturnSeriesMap.has(year)) yearlyReturnSeriesMap.set(year, []);
+            yearlyReturnSeriesMap.get(year).push(ret);
+        });
+        const monthlyLabels = Array.from(monthlyReturnsMap.keys());
+        const monthlyValues = monthlyLabels.map((key) => (monthlyReturnsMap.get(key) || 1) - 1);
+        const residualTolerance = 1e-10;
+        const monthlyExplained = monthlyLabels.map((key) => {
+            const explained = linkPeriodContributions(
+                monthlyExplainedRowsMap.get(key) || [],
+                monthlyReturnSeriesMap.get(key) || [],
+                explainedComponentCount
+            );
+            return explained;
+        });
+        const monthlyResiduals = monthlyExplained.map((explained, idx) => {
+            const total = explained.reduce((sum, value) => sum + value, 0);
+            const residual = monthlyValues[idx] - total;
+            return Math.abs(residual) < residualTolerance ? 0 : residual;
+        });
+        const yearlyLabels = Array.from(yearlyReturnsMap.keys());
+        const yearlyValues = yearlyLabels.map((key) => (yearlyReturnsMap.get(key) || 1) - 1);
+        const yearlyExplained = yearlyLabels.map((key) => {
+            const explained = linkPeriodContributions(
+                yearlyExplainedRowsMap.get(key) || [],
+                yearlyReturnSeriesMap.get(key) || [],
+                explainedComponentCount
+            );
+            return explained;
+        });
+        const yearlyResiduals = yearlyExplained.map((explained, idx) => {
+            const total = explained.reduce((sum, value) => sum + value, 0);
+            const residual = yearlyValues[idx] - total;
+            return Math.abs(residual) < residualTolerance ? 0 : residual;
+        });
+        const monthlyContribs = monthlyExplained.map((explained, idx) => {
+            const row = explained.slice();
+            row[residualComponentIndex] = (row[residualComponentIndex] || 0) + monthlyResiduals[idx];
+            return row;
+        });
+        const yearlyContribs = yearlyExplained.map((explained, idx) => {
+            const row = explained.slice();
+            row[residualComponentIndex] = (row[residualComponentIndex] || 0) + yearlyResiduals[idx];
+            return row;
+        });
+        const assetPerformance = assetCodes.map((_, codeIdx) => {
+            const base = adjustedRows[0]?.[codeIdx] || 0;
+            return adjustedRows.map((row) => base ? row[codeIdx] / base - 1 : 0);
+        });
+
+        const latestSnapshot = history[history.length - 1] || { nav: capital, margin_ratio: 0 };
+        const latestWeights = weightsHistory[weightsHistory.length - 1] || Array(assetCodes.length).fill(0);
+        const metrics = {
+            ytd_total: ytdTotal,
+            ann_ret: annRet,
+            ann_vol: annVol,
+            sharpe,
+            max_dd: maxDd,
+            var_95: var95,
+            nominal_leverage: latestSnapshot.nominal_leverage || 0,
+            capital_usage_ratio: latestSnapshot.capital_usage_ratio || 0,
+        };
+        const equityBondFutures = buildAlignedEquityBondFutures(dates, selectedYearKey || defaultYearKey);
+
+        return {
+            dates,
+            metrics,
+            drawdown,
+            ytdCumulative,
+            ytdNominal,
+            benchmarkCumulative: buildBenchmarkCumulative(dates, benchmarkPayload.returns),
+            benchmark6040Cumulative: buildBenchmarkCumulative(dates, benchmarkPayload.returns_6040),
+            equityBondFuturesCumulative: equityBondFutures.cumulative,
+            equityBondFuturesTrendLine: equityBondFutures.trendLine,
+            equityBondFuturesWeights: equityBondFutures.weights,
+            equityBondFuturesContracts: equityBondFutures.contracts,
+            equityBondFuturesLatestWeights: equityBondFutures.latestWeights,
+            equityBondFuturesLatestAllocation: equityBondFutures.latestAllocation,
+            equityBondFuturesInitialCapital: equityBondFutures.initialCapital,
+            monthlyLabels,
+            monthlyValues,
+            monthlyContribs,
+            yearlyLabels,
+            yearlyValues,
+            yearlyContribs,
+            attributionNames,
+            attributionColors: attributionColorList,
+            latestWeights,
+            weightHistory: weightsHistory,
+            rollingVolatility250,
+            forecastVolatilityHistory,
+            latestSnapshot,
+            positions,
+            rebalanceRecords,
+            assetNames,
+            assetPerformance,
+            latestCorrelationMatrix: payload.latest_correlation_matrix,
+            latestDate: payload.latest_date,
+            selectedYear: String(selectedYearKey || defaultYearKey),
+        };
+    }
+
+    function renderDynamicDashboard(state) {
+        metricsSection.innerHTML = buildMetricsHtml(state.metrics);
+        rebalanceSection.innerHTML = buildRebalanceHtml(state.rebalanceRecords);
+        if (dashboardTitle) {
+            dashboardTitle.innerText = `📊 ${strategyTitle} — 成立于 ${state.selectedYear} 年`;
+        }
+        if (dashboardDate) {
+            const scenarioLabel = calculatorStrategyMode === 'strict'
+                ? (selectedVolatilityTarget === null ? '不限制波动率' : `${fmtPct(selectedVolatilityTarget, 0)}波动率上限`)
+                : '约束风险平价';
+            dashboardDate.innerText = `策略成立日: ${state.selectedYear}-01-01 · 历史口径: ${scenarioLabel} · 数据截至: ${state.latestDate} · 生成时间: 2026-08-10 11:08`;
+        }
+        document.title = `${strategyDocumentTitle} — 成立于 ${state.selectedYear} 年`;
+
+        if (equityBondFuturesNote) {
+            const equityWeight = state.equityBondFuturesLatestWeights?.equity || 0;
+            const bondWeight = state.equityBondFuturesLatestWeights?.bond || 0;
+            const allocation = state.equityBondFuturesLatestAllocation || {};
+            equityBondFuturesNote.innerText = `中证A500按金额持有，10年期国债期货按整手持有，剩余可用现金按年化2%计息；近125日等风险贡献、月末调仓。橙色虚线是所选成立年份至今的线性回归趋势，强制从0%起步，切换年份后重新拟合，仅展示、不触发交易。当前目标：股票 ${fmtPct(equityWeight)}，国债期货 ${fmtPct(bondWeight)}；回放账户持有 ${fmtNum(allocation.contracts || 0, 0)} 手，股票 ${fmtCny(allocation.equity_value || 0)}，可用现金 ${fmtCny(allocation.available_cash || 0)}。`;
+        }
+
+        Plotly.react('chart-nav', [
+            {
+                x: state.dates,
+                y: state.ytdCumulative.map((value) => value - 1),
+                name: '杠杆后组合',
+                type: 'scatter',
+                line: { color: '#f44336', width: 2.5 },
+                fill: 'tozeroy',
+                fillcolor: 'rgba(244,67,54,0.05)'
+            },
+            {
+                x: state.dates,
+                y: state.ytdNominal.map((value) => value - 1),
+                name: '名义组合',
+                type: 'scatter',
+                line: { color: '#64b5f6', width: 1.5, dash: 'dot' },
+            },
+            {
+                x: state.dates,
+                y: state.benchmarkCumulative.map((value) => value - 1),
+                name: '80债/20股基准',
+                type: 'scatter',
+                line: { color: '#2e8b57', width: 1.7, dash: 'dash' },
+            },
+            {
+                x: state.dates,
+                y: state.benchmark6040Cumulative.map((value) => value - 1),
+                name: '60债/40股基准',
+                type: 'scatter',
+                line: { color: '#7b1fa2', width: 1.7, dash: 'dashdot' },
+            }
+        ], Object.assign({}, baseLayout, {
+            height: 300,
+            xaxis: Object.assign({}, baseLayout.xaxis, { range: [state.dates[0], state.dates[state.dates.length - 1]] }),
+            yaxis: { gridcolor: gridColor, tickformat: '.2%', zerolinecolor: gridColor },
+            shapes: [{
+                type: 'line', x0: state.dates[0], x1: state.dates[state.dates.length - 1],
+                y0: 0, y1: 0, line: { color: 'rgba(255,255,255,0.2)', dash: 'dash', width: 1 }
+            }]
+        }), { responsive: true });
+
+        Plotly.react('chart-equity-bond-futures', [
+            {
+                x: state.dates,
+                y: state.equityBondFuturesCumulative.map((value) => value - 1),
+                customdata: state.equityBondFuturesWeights.map((weights, idx) => [weights[0], weights[1], state.equityBondFuturesContracts[idx]]),
+                name: '股债期货风险平价',
+                type: 'scatter',
+                line: { color: '#0f766e', width: 2.5 },
+                fill: 'tozeroy',
+                fillcolor: 'rgba(15,118,110,0.06)',
+                hovertemplate: '%{x}<br>累计收益 %{y:.2%}<br>股票 %{customdata[0]:.2%}<br>国债期货 %{customdata[1]:.2%}<br>期货 %{customdata[2]:.0f} 手<extra></extra>'
+            },
+            {
+                x: state.dates,
+                y: state.equityBondFuturesTrendLine.map((value) => value - 1),
+                name: '成立以来线性趋势',
+                type: 'scatter',
+                line: { color: '#b45309', width: 1.8, dash: 'dash' },
+                hovertemplate: '%{x}<br>线性趋势 %{y:.2%}<extra></extra>'
+            }
+        ], Object.assign({}, baseLayout, {
+            height: 280,
+            xaxis: Object.assign({}, baseLayout.xaxis, { range: [state.dates[0], state.dates[state.dates.length - 1]] }),
+            yaxis: { gridcolor: gridColor, tickformat: '.2%', zerolinecolor: gridColor },
+            legend: { orientation: 'h', y: -0.15, font: { size: 10 } },
+            shapes: [{
+                type: 'line', x0: state.dates[0], x1: state.dates[state.dates.length - 1],
+                y0: 0, y1: 0, line: { color: 'rgba(16,32,48,0.18)', dash: 'dash', width: 1 }
+            }]
+        }), { responsive: true });
+
+        Plotly.react('chart-drawdown', [
+            {
+                x: state.dates,
+                y: state.drawdown,
+                type: 'scatter',
+                fill: 'tozeroy',
+                fillcolor: 'rgba(244,67,54,0.15)',
+                line: { color: '#f44336', width: 1.5 },
+                name: '回撤'
+            }
+        ], Object.assign({}, baseLayout, {
+            height: 220,
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+            showlegend: false
+        }), { responsive: true });
+
+        Plotly.react('chart-monthly', [
+            {
+                x: state.monthlyLabels,
+                y: state.monthlyValues,
+                type: 'bar',
+                marker: { color: state.monthlyValues.map((v) => v >= 0 ? '#2E8B57' : '#DC143C'), opacity: 0.85 },
+                name: '月度收益'
+            }
+        ], Object.assign({}, baseLayout, {
+            height: 220,
+            xaxis: Object.assign({}, baseLayout.xaxis, { type: 'category' }),
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+            showlegend: false
+        }), { responsive: true });
+
+        Plotly.react('chart-weights', [
+            {
+                labels: state.assetNames,
+                values: state.latestWeights,
+                type: 'pie',
+                hole: 0.5,
+                marker: { colors: ["#d97706", "#059669", "#dc2626", "#2563eb"] },
+                textinfo: 'label+percent',
+                textposition: 'outside',
+                textfont: { color: fontColor, size: 11 }
+            }
+        ], Object.assign({}, baseLayout, {
+            height: 260,
+            showlegend: false,
+            margin: { t: 10, b: 10, l: 10, r: 10 }
+        }), { responsive: true });
+
+        Plotly.react('chart-corr', [{
+            z: state.latestCorrelationMatrix,
+            x: state.assetNames,
+            y: state.assetNames,
+            type: 'heatmap',
+            colorscale: [
+                [0, '#4575b4'],
+                [0.5, '#f3e9dc'],
+                [1, '#d73027']
+            ],
+            zmin: -1,
+            zmax: 1,
+            texttemplate: '%{z:.2f}',
+            textfont: { size: 12, color: '#102030' },
+            showscale: true
+        }], Object.assign({}, baseLayout, {
+            height: 280,
+            margin: { t: 10, b: 70, l: 110, r: 20 },
+            yaxis: Object.assign({}, baseLayout.yaxis, { type: 'category', autorange: 'reversed' }),
+            xaxis: Object.assign({}, baseLayout.xaxis, { type: 'category', tickangle: -30 })
+        }), { responsive: true });
+
+        const attributionColors = state.attributionColors || ["#d97706", "#059669", "#dc2626", "#2563eb"].concat(['#0891b2', '#7c3aed']);
+
+        Plotly.react('chart-attribution', state.attributionNames.map((name, idx) => ({
+            x: state.monthlyLabels,
+            y: state.monthlyContribs.map((row) => row[idx]),
+            name,
+            type: 'bar',
+            marker: { color: attributionColors[idx], opacity: 0.95 }
+        })), Object.assign({}, baseLayout, {
+            height: 260,
+            barmode: 'relative',
+            xaxis: Object.assign({}, baseLayout.xaxis, { type: 'category' }),
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+        }), { responsive: true });
+
+        const volatilityTraces = [{
+            x: state.dates,
+            y: state.rollingVolatility250,
+            name: '250日滚动实现波动率',
+            type: 'scatter',
+            mode: 'lines',
+            connectgaps: false,
+            line: { color: '#0f766e', width: 2.2 },
+            hovertemplate: '%{x}<br>250日实现波动率 %{y:.2%}<extra></extra>',
+        }, {
+            x: state.dates,
+            y: state.forecastVolatilityHistory,
+            name: '调仓时事前预测波动率',
+            type: 'scatter',
+            mode: 'lines',
+            line: { color: '#b45309', width: 1.7, dash: 'dash', shape: 'hv' },
+            hovertemplate: '%{x}<br>事前预测波动率 %{y:.2%}<extra></extra>',
+        }];
+        if (calculatorStrategyMode === 'strict' && selectedVolatilityTarget !== null) {
+            volatilityTraces.push({
+                x: [state.dates[0], state.dates[state.dates.length - 1]],
+                y: [selectedVolatilityTarget, selectedVolatilityTarget],
+                name: `${fmtPct(selectedVolatilityTarget, 0)}波动率上限`,
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#64748b', width: 1.4, dash: 'dot' },
+                hovertemplate: `目标上限 ${fmtPct(selectedVolatilityTarget, 0)}<extra></extra>`,
+            });
+        }
+        Plotly.react('chart-volatility-history', volatilityTraces, Object.assign({}, baseLayout, {
+            height: 320,
+            margin: { t: 18, b: 72, l: 58, r: 20 },
+            xaxis: Object.assign({}, baseLayout.xaxis, { range: [state.dates[0], state.dates[state.dates.length - 1]] }),
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor, rangemode: 'tozero' },
+            legend: { orientation: 'h', x: 0, y: -0.18, font: { size: 10 } },
+            hovermode: 'x unified',
+        }), { responsive: true });
+
+        const weightHistoryTraces = state.assetNames.map((name, idx) => ({
+            x: state.dates,
+            y: state.weightHistory.map((row) => row[idx]),
+            name,
+            type: 'scatter',
+            mode: 'lines',
+            stackgroup: 'asset-weights',
+            line: { color: ["#d97706", "#059669", "#dc2626", "#2563eb"][idx], width: 1.0 },
+            opacity: 0.82,
+            hovertemplate: `%{x}<br>${name} %{y:.2%}<extra></extra>`,
+        }));
+        Plotly.react('chart-weight-history', weightHistoryTraces, Object.assign({}, baseLayout, {
+            height: 340,
+            margin: { t: 18, b: 80, l: 58, r: 20 },
+            xaxis: Object.assign({}, baseLayout.xaxis, { range: [state.dates[0], state.dates[state.dates.length - 1]] }),
+            yaxis: { gridcolor: gridColor, tickformat: '.0%', zerolinecolor: gridColor, range: [0, 1] },
+            legend: { orientation: 'h', x: 0, y: -0.18, font: { size: 10 } },
+            hovermode: 'x unified',
+        }), { responsive: true });
+
+        Plotly.react('chart-yearly', [{
+            x: state.yearlyLabels,
+            y: state.yearlyValues,
+            type: 'bar',
+            marker: { color: state.yearlyValues.map((value) => value >= 0 ? '#2E8B57' : '#DC143C'), opacity: 0.85 },
+            name: '年度收益'
+        }], Object.assign({}, baseLayout, {
+            height: 220,
+            xaxis: Object.assign({}, baseLayout.xaxis, { type: 'category' }),
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+            showlegend: false
+        }), { responsive: true });
+
+        Plotly.react('chart-yearly-attribution', state.attributionNames.map((name, idx) => ({
+            x: state.yearlyLabels,
+            y: state.yearlyContribs.map((row) => row[idx]),
+            name,
+            type: 'bar',
+            marker: { color: attributionColors[idx], opacity: 0.95 }
+        })), Object.assign({}, baseLayout, {
+            height: 220,
+            barmode: 'relative',
+            xaxis: Object.assign({}, baseLayout.xaxis, { type: 'category' }),
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+        }), { responsive: true });
+
+        Plotly.react('chart-assets', state.assetNames.map((name, idx) => ({
+            x: state.dates,
+            y: state.assetPerformance[idx],
+            name,
+            type: 'scatter',
+            line: { color: ["#d97706", "#059669", "#dc2626", "#2563eb"][idx], width: 1.5 },
+            opacity: 0.75
+        })), Object.assign({}, baseLayout, {
+            height: 260,
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+        }), { responsive: true });
+    }
+
+    let dashboardRerenderTimer = null;
+    function prefetchYearScenarios(yearValue) {
+        const yearKey = String(yearValue || defaultYearKey);
+        const sources = dashboardDataManifest.year_urls?.[yearKey] || {};
+        const prefetch = () => {
+            Object.keys(sources).forEach((scenarioKey) => {
+                ensureYearPayload(yearKey, scenarioKey).catch(() => null);
+            });
+        };
+        if ('requestIdleCallback' in window) {
+            window.requestIdleCallback(prefetch, { timeout: 2500 });
+        } else {
+            window.setTimeout(prefetch, 800);
+        }
+    }
+
+    async function renderSelectedDashboard() {
+        const renderSequence = ++dashboardRenderSequence;
+        const selectedYear = getSelectedYearKey();
+        const scenarioKey = selectedScenarioKey();
+        setDashboardLoading(true);
+        try {
+            await Promise.all([
+                ensureYearPayload(selectedYear, scenarioKey),
+                ensureBenchmarkPayload(),
+                ensureEquityBondFuturesPayload(selectedYear),
+            ]);
+            if (renderSequence !== dashboardRenderSequence) return;
+            const pathCapital = getYearPayload(selectedYear, scenarioKey)?.simulation?.initial_capital || 5000000;
+            const state = simulateDashboard(pathCapital, selectedYear);
+            renderDynamicDashboard(state);
+            updateCalculator(selectedYear);
+            prefetchYearScenarios(selectedYear);
+        } catch (error) {
+            console.error(error);
+            if (dashboardLoading) {
+                dashboardLoading.hidden = false;
+                dashboardLoading.textContent = '历史数据加载失败，请刷新页面重试。';
+            }
+            return;
+        } finally {
+            if (renderSequence === dashboardRenderSequence && dashboardLoading?.textContent !== '历史数据加载失败，请刷新页面重试。') {
+                setDashboardLoading(false);
+            }
+        }
+    }
+
+    function scheduleDashboardRerender() {
+        clearTimeout(dashboardRerenderTimer);
+        dashboardRerenderTimer = setTimeout(renderSelectedDashboard, 120);
+    }
+
+    calcCapInput.addEventListener('input', () => updateCalculator(getSelectedYearKey()));
+    calcYearInput.addEventListener('change', scheduleDashboardRerender);
+    updateCalculator(defaultYearKey);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', renderSelectedDashboard, { once: true });
+    } else {
+        renderSelectedDashboard();
+    }
+</script>
+
+</body>
+</html>
