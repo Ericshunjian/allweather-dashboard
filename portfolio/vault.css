@@ -369,11 +369,13 @@ input::placeholder {
 
 .money-values-hidden :is(
   #holding-fund-seed-amount,
+  #holding-quantity,
   #holding-price,
   #holding-entry-price,
   #holding-underlying-price,
   #holding-fixed-value,
   #trade-amount,
+  #trade-quantity,
   #trade-price
 ) {
   filter: blur(5px);

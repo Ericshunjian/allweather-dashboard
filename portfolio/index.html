@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260811-ah-gold1">
+  <link rel="stylesheet" href="vault.css?v=20260811-sensitive-quantity1">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -55,7 +55,7 @@
       <article class="summary-item">
         <div class="summary-label-row">
           <span>总资产</span>
-          <button id="toggle-summary-privacy" class="summary-privacy-button" type="button" aria-pressed="false" aria-label="显示全页金额">显示金额</button>
+          <button id="toggle-summary-privacy" class="summary-privacy-button" type="button" aria-pressed="false" aria-label="显示全页敏感数据">显示敏感数据</button>
         </div>
         <strong id="total-assets">******</strong>
         <small id="included-count">0项计入净资产</small>
@@ -487,6 +487,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="vault.js?v=20260811-fund-rollover1"></script>
+  <script src="vault.js?v=20260811-sensitive-quantity1"></script>
 </body>
 </html>

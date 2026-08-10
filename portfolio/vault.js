@@ -623,6 +623,7 @@
   }
 
   function formatNumber(value, digits = 2) {
+    if (!moneyValuesVisible) return "******";
     return Number.isFinite(Number(value))
       ? new Intl.NumberFormat("zh-CN", { maximumFractionDigits: digits }).format(Number(value))
       : "--";
@@ -1374,9 +1375,9 @@
 
   function updateSummaryPrivacyButton() {
     const button = $("toggle-summary-privacy");
-    button.textContent = moneyValuesVisible ? "隐藏金额" : "显示金额";
+    button.textContent = moneyValuesVisible ? "隐藏敏感数据" : "显示敏感数据";
     button.setAttribute("aria-pressed", String(moneyValuesVisible));
-    button.setAttribute("aria-label", moneyValuesVisible ? "隐藏全页金额" : "显示全页金额");
+    button.setAttribute("aria-label", moneyValuesVisible ? "隐藏全页敏感数据" : "显示全页敏感数据");
     app.classList.toggle("money-values-hidden", !moneyValuesVisible);
   }
 
