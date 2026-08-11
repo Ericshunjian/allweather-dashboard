@@ -79,6 +79,18 @@
       && ["cn-equity", "us-equity"].includes(marketKey);
   }
 
+  function inferStrategyBucket(item) {
+    const type = String(item?.assetType || "");
+    const knownId = knownUnderlyingIdentity(item)?.id;
+    const descriptor = descriptorFor(item);
+    if (["cash", "wealth", "deposit"].includes(type)) return "cash";
+    if (type === "futures" || knownId === "CN_BOND_FUTURES") return "bond_futures";
+    if (type === "gold" || knownId === "GOLD") return "gold";
+    if (knownId === "DIVIDEND_LOW_VOL" || /红利.*低波|低波.*红利/i.test(descriptor)) return "dividend";
+    if (["TENCENT", "CSI300", "CSI_A500"].includes(knownId) || /国内宽基|A股宽基/i.test(descriptor)) return "a500";
+    return "other";
+  }
+
   function businessDaysElapsed(fromDate, toDate) {
     if (!fromDate || !toDate || fromDate > toDate) return NaN;
     const cursor = new Date(`${fromDate}T00:00:00Z`);
@@ -142,6 +154,7 @@
     estimatedNativeValue,
     fundReferenceEligible,
     futuresValuation,
+    inferStrategyBucket,
     inferEquityMarket,
     isTencentDomesticBroadProxy,
     knownUnderlyingIdentity,

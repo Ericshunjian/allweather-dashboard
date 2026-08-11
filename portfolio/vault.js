@@ -242,6 +242,8 @@
       if (!item.updatedAt) item.updatedAt = candidate.ledgerUpdatedAt;
       if (!item.assetClassOverride) item.assetClassOverride = "auto";
       if (!item.marketOverride) item.marketOverride = "auto";
+      if (!item.strategyBucketOverride) item.strategyBucketOverride = item.strategyBucket || "auto";
+      if (item.strategyBucketOverride === "auto") item.strategyBucket = Core.inferStrategyBucket(item);
       const underlyingIdentity = Core.stableUnderlyingIdentity(item);
       item.underlyingId = underlyingIdentity?.id || "";
       if (item.assetType === "futures" && item.includeNav === false && !item.derivativeNavReviewed) {
@@ -3306,9 +3308,10 @@
     const type = $("holding-type").value;
     const supportsAmountInput = ["fund", "etf"].includes(type);
     const amountFund = supportsAmountInput && $("holding-fund-input-mode").value === "amount";
+    const effectiveStrategyBucket = classificationFormItem().strategyBucket;
     const supportsIntradayReference = type === "fund"
       && $("holding-currency").value === "CNY"
-      && $("holding-bucket").value !== "gold";
+      && effectiveStrategyBucket !== "gold";
     const intradayReferenceEnabled = supportsIntradayReference && $("holding-intraday-estimate-enabled").checked;
     if (amountFund) $("holding-pricing-mode").value = "auto";
     const pricing = $("holding-pricing-mode").value;
@@ -3330,8 +3333,9 @@
       ? "场内 ETF 按最新市场价格估算；份额仅作为金额换算口径"
       : type === "etf"
         ? "该代码按 ETF 联接基金净值计算，不使用盘中黄金价格"
-      : "场外基金不是盘中实时价；QDII净值通常会更晚";
+        : "场外基金不是盘中实时价；QDII净值通常会更晚";
     updateFundCalibrationHint();
+    updateClassificationSummary();
   }
 
   function updateFundCalibrationHint() {
@@ -3350,23 +3354,22 @@
 
   function applyTypeDefaults() {
     const type = $("holding-type").value;
+    $("holding-bucket").value = "auto";
+    $("holding-asset-class").value = "auto";
+    $("holding-market-class").value = "auto";
     if (["cash", "wealth", "deposit"].includes(type)) {
-      $("holding-bucket").value = "cash";
       $("holding-pricing-mode").value = type === "deposit" ? "interest" : "fixed";
       $("holding-multiplier").value = "1";
       $("holding-include-nav").checked = true;
     } else if (type === "futures") {
-      $("holding-bucket").value = "bond_futures";
       $("holding-pricing-mode").value = "auto";
       $("holding-multiplier").value = "10000";
       $("holding-include-nav").checked = true;
     } else if (type === "option") {
-      $("holding-bucket").value = "a500";
       $("holding-pricing-mode").value = "manual";
       $("holding-multiplier").value = "100";
       $("holding-include-nav").checked = true;
     } else if (type === "gold") {
-      $("holding-bucket").value = "gold";
       $("holding-pricing-mode").value = "auto";
       $("holding-multiplier").value = "1";
       $("holding-include-nav").checked = true;
@@ -3413,6 +3416,36 @@
     $("underlying-id-hint").textContent = identity
       ? `将按 ${identity.id} 合并显示${identity.known ? "" : "（自定义）"}`
       : "常见底层会自动保存稳定标识，例如 SP500";
+    updateClassificationSummary();
+  }
+
+  function classificationFormItem() {
+    const strategyBucketOverride = $("holding-bucket").value || "auto";
+    const item = {
+      name: $("holding-name").value.trim(),
+      code: $("holding-code").value.trim().toUpperCase(),
+      underlyingName: $("holding-underlying-name").value.trim(),
+      assetType: $("holding-type").value,
+      currency: $("holding-currency").value,
+      assetClassOverride: $("holding-asset-class").value,
+      marketOverride: $("holding-market-class").value,
+      strategyBucketOverride,
+      strategyBucket: "other"
+    };
+    item.strategyBucket = strategyBucketOverride === "auto"
+      ? Core.inferStrategyBucket(item)
+      : strategyBucketOverride;
+    return item;
+  }
+
+  function updateClassificationSummary() {
+    const item = classificationFormItem();
+    const strategy = strategyClassification(item)?.label || "非策略资产";
+    const broadClass = classLabels[assetClass(item)] || "其他";
+    const moveClass = dailyContributionClassification(item).label;
+    const fullyAutomatic = [item.strategyBucketOverride, item.assetClassOverride, item.marketOverride]
+      .every((value) => value === "auto");
+    $("holding-classification-summary").textContent = `${fullyAutomatic ? "自动" : "当前"}：${strategy} · ${broadClass} · ${moveClass}`;
   }
 
   function resetHoldingForm() {
@@ -3420,7 +3453,7 @@
     setHoldingLedgerLock(false);
     $("holding-id").value = "";
     $("holding-type").value = "stock";
-    $("holding-bucket").value = "other";
+    $("holding-bucket").value = "auto";
     $("holding-fund-input-mode").value = "amount";
     $("holding-currency").value = "CNY";
     $("holding-pricing-mode").value = "auto";
@@ -3435,6 +3468,7 @@
     $("holding-include-nav").checked = true;
     $("holding-form-error").textContent = "";
     $("dialog-title").textContent = "添加资产";
+    $("holding-classification-details").open = false;
     setFieldVisibility();
     updateUnderlyingIdHint();
   }
@@ -3449,7 +3483,7 @@
       $("holding-underlying-name").value = item.underlyingName || "";
       $("holding-code").value = item.code || "";
       $("holding-type").value = item.assetType || "other";
-      $("holding-bucket").value = item.strategyBucket || "other";
+      $("holding-bucket").value = item.strategyBucketOverride || item.strategyBucket || "auto";
       $("holding-asset-class").value = item.assetClassOverride || "auto";
       $("holding-market-class").value = item.marketOverride || "auto";
       $("holding-change-kind").value = "correction";
@@ -3471,6 +3505,7 @@
       $("holding-valuation-date").value = item.valuationDate || chinaDate();
       $("holding-notes").value = item.notes || "";
       $("holding-include-nav").checked = Boolean(item.includeNav);
+      $("holding-classification-details").open = false;
       setFieldVisibility();
       setHoldingLedgerLock(holdingHasTransactionReferences(item.id));
       updateUnderlyingIdHint();
@@ -3493,6 +3528,7 @@
     const intradayProxyCode = assetType === "fund" ? $("holding-intraday-proxy-code").value.trim().toUpperCase() : "";
     const amountFund = ["fund", "etf"].includes(assetType) && fundInputMode === "amount";
     const pricingMode = $("holding-pricing-mode").value;
+    const strategyBucketOverride = $("holding-bucket").value || "auto";
     const resetFundCalibration = amountFund && (
       !fundUsesEstimatedShares(existing)
       || Math.abs(fundSeedAmount - numeric(existing.fundSeedAmount)) >= 0.005
@@ -3510,7 +3546,8 @@
       underlyingName: $("holding-underlying-name").value.trim(),
       code,
       assetType,
-      strategyBucket: $("holding-bucket").value,
+      strategyBucket: "other",
+      strategyBucketOverride,
       assetClassOverride: $("holding-asset-class").value,
       marketOverride: $("holding-market-class").value,
       currency: $("holding-currency").value,
@@ -3540,6 +3577,9 @@
       basisResetAt: derivativeBasisChanged ? now : (existing.basisResetAt || null),
       updatedAt: now
     };
+    item.strategyBucket = strategyBucketOverride === "auto"
+      ? Core.inferStrategyBucket(item)
+      : strategyBucketOverride;
     item.underlyingId = Core.stableUnderlyingIdentity({ ...item, underlyingId: "" })?.id || "";
     if (resetFundCalibration) {
       item.quantity = 0;
@@ -3905,6 +3945,8 @@
     $(id).addEventListener("input", updateUnderlyingIdHint);
   });
   $("holding-bucket").addEventListener("change", setFieldVisibility);
+  $("holding-asset-class").addEventListener("change", updateClassificationSummary);
+  $("holding-market-class").addEventListener("change", updateClassificationSummary);
   $("holding-currency").addEventListener("change", setFieldVisibility);
   $("holding-intraday-estimate-enabled").addEventListener("change", setFieldVisibility);
   $("holding-pricing-mode").addEventListener("change", setFieldVisibility);

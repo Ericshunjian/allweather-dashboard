@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260811-ledger4">
+  <link rel="stylesheet" href="vault.css?v=20260811-ledger5">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -291,10 +291,6 @@
         <label>资产名称
           <input id="holding-name" type="text" maxlength="60" placeholder="场外基金 / ETF 可留空自动识别">
         </label>
-        <label>底层资产（合并显示）
-          <input id="holding-underlying-name" type="text" maxlength="40" placeholder="例如：标普500">
-          <small id="underlying-id-hint" class="field-hint">常见底层会自动保存稳定标识，例如 SP500</small>
-        </label>
         <label>代码
           <input id="holding-code" type="text" maxlength="40" placeholder="例如：00700">
         </label>
@@ -320,40 +316,54 @@
           </select>
           <small class="field-hint">金额模式只需代码和当前金额</small>
         </label>
-        <label>策略分类
-          <select id="holding-bucket">
-            <option value="a500">国内宽基</option>
-            <option value="dividend">红利低波</option>
-            <option value="gold">黄金</option>
-            <option value="bond_futures">国债期货</option>
-            <option value="cash">现金理财</option>
-            <option value="other">其他</option>
-          </select>
-        </label>
-        <label>资产类别
-          <select id="holding-asset-class">
-            <option value="auto">自动判断</option>
-            <option value="equity">权益</option>
-            <option value="gold">黄金</option>
-            <option value="bond">债券</option>
-            <option value="cash">现金理财</option>
-            <option value="other">其他</option>
-          </select>
-        </label>
-        <label>盈亏大类
-          <select id="holding-market-class">
-            <option value="auto">自动判断</option>
-            <option value="ah-equity">AH股</option>
-            <option value="us-equity">美股</option>
-            <option value="global-equity">全球权益</option>
-            <option value="gold">黄金</option>
-            <option value="bond">债券</option>
-            <option value="futures">期货</option>
-            <option value="options">期权</option>
-            <option value="cash">现金理财</option>
-            <option value="other">其他</option>
-          </select>
-        </label>
+        <details id="holding-classification-details" class="classification-details full-span">
+          <summary>
+            <span>分类设置</span>
+            <small id="holding-classification-summary">自动判断</small>
+            <span class="classification-disclosure" aria-hidden="true">›</span>
+          </summary>
+          <div class="classification-grid">
+            <label>底层资产（可选）
+              <input id="holding-underlying-name" type="text" maxlength="40" placeholder="通常不用填；例如：标普500">
+              <small id="underlying-id-hint" class="field-hint">常见底层会自动识别并合并</small>
+            </label>
+            <label>策略分类
+              <select id="holding-bucket">
+                <option value="auto">自动判断</option>
+                <option value="a500">国内宽基</option>
+                <option value="dividend">红利低波</option>
+                <option value="gold">黄金</option>
+                <option value="bond_futures">国债期货</option>
+                <option value="cash">现金理财</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <label>资产类别
+              <select id="holding-asset-class">
+                <option value="auto">自动判断</option>
+                <option value="equity">权益</option>
+                <option value="gold">黄金</option>
+                <option value="bond">债券</option>
+                <option value="cash">现金理财</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <label>盈亏大类
+              <select id="holding-market-class">
+                <option value="auto">自动判断</option>
+                <option value="ah-equity">AH股</option>
+                <option value="us-equity">美股</option>
+                <option value="global-equity">全球权益</option>
+                <option value="gold">黄金</option>
+                <option value="bond">债券</option>
+                <option value="futures">期货</option>
+                <option value="options">期权</option>
+                <option value="cash">现金理财</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+          </div>
+        </details>
         <label>币种
           <select id="holding-currency">
             <option value="CNY">人民币 CNY</option>
@@ -540,7 +550,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="ledger-core.js?v=20260811-ledger4"></script>
-  <script src="vault.js?v=20260811-ledger4"></script>
+  <script src="ledger-core.js?v=20260811-ledger5"></script>
+  <script src="vault.js?v=20260811-ledger5"></script>
 </body>
 </html>

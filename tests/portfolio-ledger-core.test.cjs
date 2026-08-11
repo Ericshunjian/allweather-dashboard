@@ -85,3 +85,10 @@ test("补录交易按录入日扣除资金流，避免历史收益被虚增", ()
   assert.equal(Core.entryFlowDate({ date: "2026-07-01", flowDate: "2026-08-11" }), "2026-08-11");
   assert.equal(Core.entryFlowDate({ date: "2026-07-01" }), "2026-07-01");
 });
+
+test("常见资产自动归入策略大类，海外指数不硬塞进国内策略", () => {
+  assert.equal(Core.inferStrategyBucket({ assetType: "stock", name: "腾讯控股", code: "00700.HK" }), "a500");
+  assert.equal(Core.inferStrategyBucket({ assetType: "fund", name: "红利低波基金" }), "dividend");
+  assert.equal(Core.inferStrategyBucket({ assetType: "fund", name: "黄金ETF联接", code: "004253" }), "gold");
+  assert.equal(Core.inferStrategyBucket({ assetType: "fund", name: "标普500 QDII" }), "other");
+});
