@@ -308,6 +308,27 @@ input::placeholder {
   gap: 8px;
 }
 
+.header-primary-actions,
+.header-more-menu {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.header-more {
+  display: contents;
+}
+
+.header-more > summary {
+  display: none;
+  list-style: none;
+}
+
+.header-more > summary::-webkit-details-marker {
+  display: none;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -689,7 +710,7 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
 }
 
 .daily-contribution-empty {
-  min-height: 108px;
+  min-height: 72px;
   display: grid;
   place-items: center;
   color: var(--muted);
@@ -808,6 +829,10 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
+}
+
+.insight-switch {
+  display: none;
 }
 
 .holding-insight-card {
@@ -1232,6 +1257,13 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   color: var(--gold);
 }
 
+.quote-status.stale,
+.status-pill.stale {
+  color: #a55b18;
+  background: #fff7e8;
+  border-color: #ead29d;
+}
+
 .table-actions {
   display: flex;
   justify-content: flex-end;
@@ -1256,6 +1288,25 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
 .table-action.trade {
   color: var(--blue);
   border-color: rgba(36, 103, 156, 0.18);
+}
+
+.mobile-holding-detail-toggle {
+  display: none;
+}
+
+.ledger-actions {
+  align-items: center;
+}
+
+.ledger-type-select {
+  min-height: 30px;
+  max-width: 118px;
+  padding: 3px 22px 3px 7px;
+  color: var(--muted);
+  background-color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 11px;
 }
 
 .table-action:disabled {
@@ -1322,7 +1373,7 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
 }
 
 .transactions-table th:last-child {
-  width: 64px;
+  width: 154px;
 }
 
 .transaction-type {
@@ -1916,11 +1967,56 @@ dialog::backdrop {
   .header-actions {
     display: grid;
     width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+  }
+
+  .header-primary-actions {
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .header-actions .text-button {
-    grid-column: 1 / -1;
+  .header-more {
+    position: relative;
+    display: block;
+  }
+
+  .header-more > summary {
+    min-height: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .header-more-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 20;
+    width: min(230px, calc(100vw - 24px));
+    display: grid;
+    gap: 6px;
+    padding: 8px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
+
+  .header-more:not([open]) .header-more-menu {
+    display: none;
+  }
+
+  .header-more-menu :is(button, .file-button) {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .header-more-menu .text-button {
+    min-height: 38px;
+    padding: 8px 12px;
+    text-align: left;
   }
 
   .summary-item {
@@ -1937,6 +2033,37 @@ dialog::backdrop {
 
   .holding-insights-grid {
     grid-template-columns: 1fr;
+  }
+
+  .insight-switch {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+    margin: 0 0 8px;
+    padding: 3px;
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  .insight-switch-button {
+    min-height: 34px;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .insight-switch-button.active {
+    color: var(--ink);
+    background: var(--paper);
+    box-shadow: 0 1px 4px rgba(36, 48, 58, 0.08);
+  }
+
+  .holding-insight-card:not(.active) {
+    display: none;
   }
 
   .daily-contribution-heading {
@@ -2063,7 +2190,7 @@ dialog::backdrop {
     display: block;
     margin-bottom: 4px;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 700;
   }
 
@@ -2074,6 +2201,23 @@ dialog::backdrop {
 
   .table-actions {
     justify-content: flex-start;
+  }
+
+  .mobile-holding-detail-toggle {
+    display: inline-flex;
+    order: -1;
+    color: var(--blue);
+    border-color: rgba(36, 103, 156, 0.18);
+  }
+
+  .holdings-table tr:not(.holding-group-row):not(.is-mobile-expanded) td:is(
+    [data-label="持仓"],
+    [data-label="最新价"],
+    [data-label="风险敞口"],
+    [data-label="累计盈亏"],
+    [data-label="行情"]
+  ) {
+    display: none;
   }
 
   .holding-group-action-cell {
@@ -2136,7 +2280,7 @@ dialog::backdrop {
     display: block;
     margin-bottom: 4px;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 700;
   }
 
@@ -2155,6 +2299,25 @@ dialog::backdrop {
 
   .full-span {
     grid-column: auto;
+  }
+
+  .field-hint,
+  .daily-contribution-heading > span,
+  .daily-contribution-axis-track,
+  .daily-contribution-details-heading span,
+  .daily-contribution-details-hint,
+  .daily-contribution-detail-section h4,
+  .daily-contribution-detail-identity small,
+  .holding-insight-heading small,
+  .holding-insight-heading > span,
+  .donut-center span,
+  .donut-legend-button,
+  .holding-control-group > span,
+  .holding-meta,
+  .quote-status,
+  .transaction-asset-meta,
+  .transaction-subvalue {
+    font-size: 11px;
   }
 }
 

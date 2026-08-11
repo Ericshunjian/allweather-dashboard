@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260811-ledger3">
+  <link rel="stylesheet" href="vault.css?v=20260811-ledger4">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -21,7 +21,7 @@
         <input type="text" name="username" autocomplete="username" value="portfolio-owner" hidden>
         <label for="vault-password">访问密码</label>
         <div class="password-row">
-          <input id="vault-password" name="password" type="password" inputmode="numeric" autocomplete="current-password" required autofocus>
+          <input id="vault-password" name="password" type="password" autocomplete="current-password" required autofocus>
           <button id="toggle-password" class="icon-button" type="button" aria-label="显示密码" title="显示密码">显示</button>
         </div>
         <button id="unlock-button" class="primary-button full-button" type="submit">解锁台账</button>
@@ -38,16 +38,23 @@
         <p id="valuation-time" class="header-meta">等待刷新行情</p>
       </div>
       <nav class="header-actions" aria-label="资产台账操作">
-        <button id="refresh-quotes" class="secondary-button" type="button">刷新行情</button>
-        <button id="add-holding" class="primary-button" type="button">添加资产</button>
-        <button id="open-sync" class="secondary-button sync-button" type="button">
-          云同步
-          <span id="sync-status" class="sync-dot" data-state="local">仅本机</span>
-        </button>
-        <button id="export-vault" class="secondary-button" type="button">导出备份</button>
-        <label class="secondary-button file-button" for="import-file">导入备份</label>
-        <input id="import-file" type="file" accept="application/json,.json" hidden>
-        <button id="lock-vault" class="text-button" type="button">锁定</button>
+        <div class="header-primary-actions">
+          <button id="refresh-quotes" class="secondary-button" type="button">刷新行情</button>
+          <button id="add-holding" class="primary-button" type="button">添加资产</button>
+        </div>
+        <details id="header-more" class="header-more" open>
+          <summary class="secondary-button">更多</summary>
+          <div class="header-more-menu">
+            <button id="open-sync" class="secondary-button sync-button" type="button">
+              云同步
+              <span id="sync-status" class="sync-dot" data-state="local">仅本机</span>
+            </button>
+            <button id="export-vault" class="secondary-button" type="button">导出备份</button>
+            <label class="secondary-button file-button" for="import-file">导入备份</label>
+            <input id="import-file" type="file" accept="application/json,.json" hidden>
+            <button id="lock-vault" class="text-button" type="button">锁定</button>
+          </div>
+        </details>
       </nav>
     </header>
 
@@ -60,7 +67,7 @@
     <section class="summary-grid" data-mobile-section="overview" aria-label="资产摘要">
       <article class="summary-item">
         <div class="summary-label-row">
-          <span>总资产</span>
+          <span id="total-assets-label">总资产</span>
           <button id="toggle-summary-privacy" class="summary-privacy-button" type="button" aria-pressed="false" aria-label="显示全页敏感数据">显示敏感数据</button>
         </div>
         <strong id="total-assets">******</strong>
@@ -124,22 +131,27 @@
         </div>
         <div id="daily-contribution-chart" class="daily-contribution-chart" aria-label="最新估值贡献"></div>
       </article>
+      <div class="insight-switch" role="group" aria-label="分类图表">
+        <button class="insight-switch-button active" type="button" data-insight-view="platform" aria-pressed="true">平台</button>
+        <button class="insight-switch-button" type="button" data-insight-view="class" aria-pressed="false">类别</button>
+        <button class="insight-switch-button" type="button" data-insight-view="strategy" aria-pressed="false">策略</button>
+      </div>
       <div class="holding-insights-grid" aria-label="资产分类概览">
-        <article class="holding-insight-card">
+        <article class="holding-insight-card active" data-insight-card="platform">
           <div class="holding-insight-heading">
             <div><small>PLATFORM</small><strong>按平台</strong></div>
             <span>净资产</span>
           </div>
           <div id="platform-donut" class="donut-chart"></div>
         </article>
-        <article class="holding-insight-card">
+        <article class="holding-insight-card" data-insight-card="class">
           <div class="holding-insight-heading">
             <div><small>ASSET CLASS</small><strong>按资产类别</strong></div>
             <span>净资产</span>
           </div>
           <div id="class-donut" class="donut-chart"></div>
         </article>
-        <article class="holding-insight-card">
+        <article class="holding-insight-card" data-insight-card="strategy">
           <div class="holding-insight-heading">
             <div><small>RISK PARITY</small><strong>按策略大类</strong></div>
             <span>风险敞口</span>
@@ -281,7 +293,7 @@
         </label>
         <label>底层资产（合并显示）
           <input id="holding-underlying-name" type="text" maxlength="40" placeholder="例如：标普500">
-          <small class="field-hint">相同名称会折叠；常见指数可自动识别</small>
+          <small id="underlying-id-hint" class="field-hint">常见底层会自动保存稳定标识，例如 SP500</small>
         </label>
         <label>代码
           <input id="holding-code" type="text" maxlength="40" placeholder="例如：00700">
@@ -463,6 +475,9 @@
         <label>成交价格 / 净值
           <input id="trade-price" type="number" min="0" step="any" inputmode="decimal">
         </label>
+        <label>成交日期
+          <input id="trade-date" type="date" required>
+        </label>
       </div>
       <div id="trade-preview" class="trade-preview" aria-live="polite">选择资产并填写成交信息</div>
       <p id="trade-form-error" class="form-error" role="alert" aria-live="polite"></p>
@@ -525,6 +540,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="vault.js?v=20260811-ledger3"></script>
+  <script src="ledger-core.js?v=20260811-ledger4"></script>
+  <script src="vault.js?v=20260811-ledger4"></script>
 </body>
 </html>

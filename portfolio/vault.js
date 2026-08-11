@@ -3,6 +3,7 @@
 
   const AUTH = window.PORTFOLIO_VAULT_AUTH;
   const SYNC_CONFIG = window.PORTFOLIO_SYNC_CONFIG || {};
+  const Core = window.PortfolioLedgerCore;
   const STORAGE_KEY = "allweather.portfolio.vault.v1";
   const LOCAL_USER_DATA_KEY = "allweather.portfolio.vault.has-user-data.v1";
   const SYNC_SESSION_KEY = "allweather.portfolio.sync.session.v1";
@@ -99,6 +100,7 @@
   let hadLocalVault = false;
   let localVaultHasUserChanges = false;
   let historyPeriod = "day";
+  let insightView = "platform";
   let quoteRefreshTimer = null;
   let moneyValuesVisible = false;
   const expandedHoldingGroups = new Set();
@@ -117,7 +119,16 @@
   const tradeForm = $("trade-form");
   const confirmDialog = $("confirm-dialog");
   const syncDialog = $("sync-dialog");
+  const headerMore = $("header-more");
+  const mobileHeaderQuery = window.matchMedia("(max-width: 720px)");
   app.dataset.mobilePage = "overview";
+
+  function syncHeaderMoreMode(event = mobileHeaderQuery) {
+    headerMore.open = !event.matches;
+  }
+
+  syncHeaderMoreMode();
+  mobileHeaderQuery.addEventListener("change", syncHeaderMoreMode);
 
   function bytesFromBase64(value) {
     const binary = atob(value);
@@ -219,7 +230,8 @@
     if (!Array.isArray(candidate.ledgerEvents)) candidate.ledgerEvents = [];
     if (!Array.isArray(candidate.deletedHoldings)) candidate.deletedHoldings = [];
     if (!Array.isArray(candidate.deletedTransactions)) candidate.deletedTransactions = [];
-    candidate.schemaVersion = Math.max(numeric(candidate.schemaVersion, 1), 2);
+    if (!Array.isArray(candidate.deletedLedgerEvents)) candidate.deletedLedgerEvents = [];
+    candidate.schemaVersion = Math.max(numeric(candidate.schemaVersion, 1), 3);
     candidate.ledgerRevision = Math.max(0, numeric(candidate.ledgerRevision));
     candidate.ledgerUpdatedAt = candidate.ledgerUpdatedAt || candidate.updatedAt || candidate.createdAt || new Date().toISOString();
     candidate.cacheUpdatedAt = candidate.cacheUpdatedAt || candidate.updatedAt || candidate.ledgerUpdatedAt;
@@ -230,6 +242,8 @@
       if (!item.updatedAt) item.updatedAt = candidate.ledgerUpdatedAt;
       if (!item.assetClassOverride) item.assetClassOverride = "auto";
       if (!item.marketOverride) item.marketOverride = "auto";
+      const underlyingIdentity = Core.stableUnderlyingIdentity(item);
+      item.underlyingId = underlyingIdentity?.id || "";
       if (item.assetType === "futures" && item.includeNav === false && !item.derivativeNavReviewed) {
         item.includeNav = true;
         item.derivativeNavReviewed = true;
@@ -245,7 +259,7 @@
   function createEmptyVault() {
     return {
       version: 1,
-      schemaVersion: 2,
+      schemaVersion: 3,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       ledgerUpdatedAt: new Date().toISOString(),
@@ -256,6 +270,7 @@
       ledgerEvents: [],
       deletedHoldings: [],
       deletedTransactions: [],
+      deletedLedgerEvents: [],
       snapshots: [],
       fxRates: { CNY: 1, USD: null, HKD: null, previous: { CNY: 1, USD: null, HKD: null }, updatedAt: null }
     };
@@ -447,19 +462,40 @@
     return Array.isArray(rows) ? rows[0] || null : null;
   }
 
-  async function uploadRemoteVault(encrypted, clientUpdatedAt) {
+  function syncConflictError() {
+    const error = new Error("云端数据刚被其他设备更新，正在重新合并");
+    error.code = "SYNC_CONFLICT";
+    return error;
+  }
+
+  async function uploadRemoteVault(encrypted, clientUpdatedAt, expectedUpdatedAt = null) {
     const session = await ensureCloudSession();
     if (!session) throw new Error("请先登录同步账户");
-    await cloudRequest("/rest/v1/portfolio_vaults?on_conflict=user_id", {
-      method: "POST",
+    const body = {
+      user_id: session.user.id,
+      vault: JSON.parse(encrypted),
+      client_updated_at: clientUpdatedAt
+    };
+    if (!expectedUpdatedAt) {
+      const inserted = await cloudRequest("/rest/v1/portfolio_vaults?on_conflict=user_id", {
+        method: "POST",
+        accessToken: session.accessToken,
+        headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+        body
+      });
+      if (!Array.isArray(inserted) || !inserted.length) throw syncConflictError();
+      return inserted[0];
+    }
+    const userId = encodeURIComponent(session.user.id);
+    const expected = encodeURIComponent(expectedUpdatedAt);
+    const updated = await cloudRequest(`/rest/v1/portfolio_vaults?user_id=eq.${userId}&updated_at=eq.${expected}`, {
+      method: "PATCH",
       accessToken: session.accessToken,
-      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: {
-        user_id: session.user.id,
-        vault: JSON.parse(encrypted),
-        client_updated_at: clientUpdatedAt
-      }
+      headers: { Prefer: "return=representation" },
+      body: { vault: body.vault, client_updated_at: clientUpdatedAt }
     });
+    if (!Array.isArray(updated) || !updated.length) throw syncConflictError();
+    return updated[0];
   }
 
   function markSyncComplete() {
@@ -482,16 +518,7 @@
   }
 
   function mergeById(localItems = [], remoteItems = [], updatedAtForItem = (item) => item.updatedAt || item.createdAt) {
-    const merged = new Map();
-    [...remoteItems, ...localItems].forEach((source) => {
-      if (!source?.id) return;
-      const item = cloneData(source);
-      const current = merged.get(item.id);
-      if (!current || timestampValue(updatedAtForItem(item)) >= timestampValue(updatedAtForItem(current))) {
-        merged.set(item.id, item);
-      }
-    });
-    return [...merged.values()];
+    return Core.mergeById(localItems, remoteItems, updatedAtForItem);
   }
 
   const holdingQuoteCacheFields = Object.freeze([
@@ -554,18 +581,26 @@
       remoteVault.deletedTransactions,
       (item) => item.deletedAt
     );
-    base.schemaVersion = 2;
+    const deletedLedgerEvents = mergeById(
+      localVault.deletedLedgerEvents,
+      remoteVault.deletedLedgerEvents,
+      (item) => item.deletedAt
+    );
+    base.schemaVersion = 3;
     base.ledgerRevision = Math.max(numeric(localVault.ledgerRevision), numeric(remoteVault.ledgerRevision));
     base.ledgerUpdatedAt = laterTimestamp(localVault.ledgerUpdatedAt, remoteVault.ledgerUpdatedAt) || new Date().toISOString();
     base.updatedAt = base.ledgerUpdatedAt;
     base.cacheUpdatedAt = laterTimestamp(localVault.cacheUpdatedAt, remoteVault.cacheUpdatedAt, base.ledgerUpdatedAt);
     base.deletedHoldings = deletedHoldings;
     base.deletedTransactions = deletedTransactions;
+    base.deletedLedgerEvents = deletedLedgerEvents;
     base.holdings = mergeHoldings(localVault.holdings, remoteVault.holdings, deletedHoldings);
     const deletedTransactionIds = new Set(deletedTransactions.map((item) => item.id));
     base.transactions = mergeById(localVault.transactions, remoteVault.transactions)
       .filter((item) => !deletedTransactionIds.has(item.id));
-    base.ledgerEvents = mergeById(localVault.ledgerEvents, remoteVault.ledgerEvents);
+    const deletedLedgerEventIds = new Set(deletedLedgerEvents.map((item) => item.id));
+    base.ledgerEvents = mergeById(localVault.ledgerEvents, remoteVault.ledgerEvents)
+      .filter((item) => !deletedLedgerEventIds.has(item.id));
     base.snapshots = mergeSnapshots(localVault.snapshots, remoteVault.snapshots);
     const localFxTime = timestampValue(localVault.fxRates?.updatedAt);
     base.fxRates = cloneData(localFxTime >= timestampValue(remoteVault.fxRates?.updatedAt)
@@ -581,24 +616,27 @@
     cloudSyncPromise = (async () => {
       setSyncStatus("syncing", "同步中");
       try {
-        const remote = await fetchRemoteVault();
-        const localRaw = localStorage.getItem(STORAGE_KEY);
-        if (!remote?.vault) {
-          if (localRaw) await uploadRemoteVault(localRaw, vault.ledgerUpdatedAt);
-          markSyncComplete();
-          if (!options.silent) showToast("本机加密台账已上传");
-          return;
+        let uploadedInitialVault = false;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const remote = await fetchRemoteVault();
+          if (remote?.vault) {
+            const remoteVault = await decryptVault(JSON.stringify(remote.vault));
+            vault = (!hadLocalVault && !localVaultHasUserChanges) ? remoteVault : mergeVaults(vault, remoteVault);
+          }
+          await recordSnapshot();
+          hadLocalVault = true;
+          const mergedRaw = localStorage.getItem(STORAGE_KEY);
+          try {
+            await uploadRemoteVault(mergedRaw, vault.ledgerUpdatedAt || remote?.client_updated_at, remote?.updated_at || null);
+            uploadedInitialVault = !remote?.vault;
+            renderAll();
+            if (!options.silent) showToast(uploadedInitialVault ? "本机加密台账已上传" : "本机与云端资产台账已合并同步");
+            markSyncComplete();
+            return;
+          } catch (error) {
+            if (error?.code !== "SYNC_CONFLICT" || attempt === 2) throw error;
+          }
         }
-        const remoteRaw = JSON.stringify(remote.vault);
-        const remoteVault = await decryptVault(remoteRaw);
-        vault = (!hadLocalVault && !localVaultHasUserChanges) ? remoteVault : mergeVaults(vault, remoteVault);
-        await recordSnapshot();
-        hadLocalVault = true;
-        const mergedRaw = localStorage.getItem(STORAGE_KEY);
-        await uploadRemoteVault(mergedRaw, vault.ledgerUpdatedAt || remote.client_updated_at);
-        renderAll();
-        if (!options.silent) showToast("本机与云端资产台账已合并同步");
-        markSyncComplete();
       } catch (error) {
         setSyncStatus("error", "同步失败");
         $("sync-panel-error").textContent = error.message;
@@ -619,8 +657,12 @@
     cloudUploadTimer = setTimeout(async () => {
       const payload = pendingEncryptedVault;
       pendingEncryptedVault = null;
+      const joinedExistingSync = Boolean(cloudSyncPromise);
       try {
         await synchronizeVault({ silent: true });
+        if (joinedExistingSync || pendingEncryptedVault) {
+          queueCloudUpload(pendingEncryptedVault || localStorage.getItem(STORAGE_KEY));
+        }
       } catch (error) {
         setSyncStatus("error", "同步失败");
         pendingEncryptedVault = payload;
@@ -731,6 +773,21 @@
     return { text: `已更新 · ${navDate}${fundUsesEstimatedShares(item) ? " · 份额估算" : ""}`, pending: false };
   }
 
+  function holdingQuoteFreshness(item) {
+    if (currentIntradayProxyMove(item)) return { state: "estimate", stale: false, label: "参考估值可用" };
+    const qdii = item.assetType === "fund"
+      && (item.currency || "CNY") === "CNY"
+      && marketClassification(item).key === "us-equity";
+    return Core.quoteFreshness({
+      pricingMode: item.pricingMode,
+      quoteTime: item.quoteTime ? chinaDate(item.quoteTime) : "",
+      quoteStatus: item.quoteStatus,
+      isFund: holdingUsesFundNav(item),
+      isQdii: qdii,
+      today: chinaDate()
+    });
+  }
+
   function formatMoney(value, digits = 0) {
     const number = Number(value);
     if (!Number.isFinite(number)) return "--";
@@ -823,7 +880,7 @@
 
   function transactionCapitalFlowBetween(startExclusive, endInclusive) {
     return (vault?.transactions || []).reduce((sum, transaction) => {
-      const date = String(transaction.date || "");
+      const date = Core.entryFlowDate(transaction);
       if (!date || date > endInclusive || (startExclusive && date <= startExclusive)) return sum;
       return sum + numeric(transaction.capitalFlowCny);
     }, 0);
@@ -934,13 +991,21 @@
       nativePnl = nativeValue - numeric(item.fixedValue);
       nativeExposure = item.strategyBucket === "cash" ? 0 : nativeValue;
     } else if (item.assetType === "futures") {
-      const dailyReferencePrice = chinaDate(item.basisResetAt) === chinaDate() ? entry : previousClose;
-      nativeExposure = direction * quantity * price * multiplier;
-      nativePnl = direction * quantity * (price - entry) * multiplier;
-      nativeDailyPnl = futuresDailyQuotePending(item)
-        ? 0
-        : direction * quantity * (price - dailyReferencePrice) * multiplier;
-      nativeValue = item.includeNav ? nativePnl : 0;
+      const futures = Core.futuresValuation({
+        quantity,
+        price,
+        entry,
+        previousClose,
+        multiplier,
+        direction,
+        resetToday: chinaDate(item.basisResetAt) === chinaDate(),
+        quotePending: futuresDailyQuotePending(item),
+        includeNav: item.includeNav
+      });
+      nativeExposure = futures.exposure;
+      nativePnl = futures.pnl;
+      nativeDailyPnl = futures.dailyPnl;
+      nativeValue = futures.value;
     } else if (item.assetType === "option") {
       const dailyReferencePrice = chinaDate(item.basisResetAt) === chinaDate() ? entry : previousClose;
       const optionDelta = numeric(item.delta);
@@ -988,6 +1053,9 @@
     }
     const previousFx = item.currency === "CNY" ? 1 : numeric(vault.fxRates?.previous?.[item.currency], fx);
     const openingNativeValue = openingNativeValueForFx(item, nativeValue, nativeDailyPnl, previousClose, multiplier, fx);
+    const valueEstimated = dailyPnlEstimated || dailyPnlCarried;
+    const estimatedNativeValue = Core.estimatedNativeValue(nativeValue, nativeDailyPnl, dailyPnlEstimated, dailyPnlCarried);
+    if (valueEstimated && !derivative && item.strategyBucket !== "cash") nativeExposure = estimatedNativeValue;
     const dailyPnlCny = validFx
       ? nativeDailyPnl * fx + openingNativeValue * (fx - (previousFx > 0 ? previousFx : fx))
       : 0;
@@ -996,9 +1064,10 @@
       nativeExposure,
       nativePnl,
       nativeDailyPnl,
-      valueCny: item.includeNav && validFx ? nativeValue * fx : 0,
+      officialValueCny: item.includeNav && validFx ? nativeValue * fx : 0,
+      valueCny: item.includeNav && validFx ? estimatedNativeValue * fx : 0,
       exposureCny: validFx ? nativeExposure * fx : 0,
-      pnlCny: (validFx ? nativePnl * fx : 0) + realizedPnlCny,
+      pnlCny: (validFx ? (nativePnl + (valueEstimated ? nativeDailyPnl : 0)) * fx : 0) + realizedPnlCny,
       dailyPnlCny,
       fxDailyPnlCny: validFx ? openingNativeValue * (fx - (previousFx > 0 ? previousFx : fx)) : 0,
       fx,
@@ -1007,6 +1076,7 @@
       dailyPnlPending,
       dailyPnlEstimated,
       dailyPnlCarried,
+      valueEstimated,
       futuresDailyQuotePending: futuresDailyQuotePending(item),
       intradayProxyMove
     };
@@ -1045,8 +1115,9 @@
     const grossExposure = rows.reduce((sum, row) => sum + Math.abs(row.calc.exposureCny), 0);
     const includedCount = rows.filter((row) => row.item.includeNav).length;
     const derivativeCount = rows.filter((row) => row.calc.derivative).length;
-    const estimatedDailyCount = rows.filter((row) => row.calc.dailyPnlEstimated).length;
-    return { rows, ledgerRows, totalAssets, dailyPnl, grossExposure, includedCount, derivativeCount, estimatedDailyCount };
+    const estimatedDailyCount = rows.filter((row) => row.calc.valueEstimated).length;
+    const officialTotalAssets = rows.reduce((sum, row) => sum + row.calc.officialValueCny, 0);
+    return { rows, ledgerRows, totalAssets, officialTotalAssets, dailyPnl, grossExposure, includedCount, derivativeCount, estimatedDailyCount };
   }
 
   function inferQuoteId(item) {
@@ -1320,14 +1391,8 @@
   }
 
   function fundReferenceMarketKey(item) {
-    if (item.assetType !== "fund"
-      || item.pricingMode !== "auto"
-      || item.intradayEstimateEnabled === false
-      || (item.currency || "CNY") !== "CNY"
-      || item.strategyBucket === "gold"
-      || assetClass(item) !== "equity") return "";
     const marketKey = marketClassification(item).key;
-    return ["cn-equity", "us-equity"].includes(marketKey) ? marketKey : "";
+    return Core.fundReferenceEligible(item, assetClass(item), marketKey) ? marketKey : "";
   }
 
   function fundReferenceEstimateEligible(item) {
@@ -1579,6 +1644,8 @@
       date,
       recordedAt: new Date().toISOString(),
       totalAssets: metrics.totalAssets,
+      officialTotalAssets: metrics.officialTotalAssets,
+      estimated: metrics.estimatedDailyCount > 0,
       dailyPnl: previousSnapshot
         ? metrics.totalAssets - numeric(previousSnapshot.totalAssets) - capitalFlowCny - valuationAdjustmentCny
         : 0,
@@ -1628,17 +1695,26 @@
       ? metrics.grossExposure / metrics.totalAssets
       : 0));
     updateSummaryPrivacyButton();
-    $("included-count").textContent = `${metrics.includedCount}项计入净资产`;
+    $("total-assets-label").textContent = metrics.estimatedDailyCount ? "总资产（含估）" : "总资产";
+    $("included-count").textContent = `${metrics.includedCount}项计入净资产${metrics.estimatedDailyCount ? ` · ${metrics.estimatedDailyCount}项估值` : ""}`;
     $("derivative-count").textContent = `${metrics.derivativeCount}项衍生品`;
-    const automatic = vault.holdings.filter((item) => item.pricingMode === "auto");
-    const covered = automatic.filter((item) => item.quoteTime && item.quoteStatus !== "更新失败").length;
-    $("quote-coverage").textContent = `行情覆盖 ${covered}/${automatic.length}`;
+    const automatic = metrics.rows.filter(({ item }) => item.pricingMode === "auto");
+    const freshnessRows = automatic.map((row) => ({ ...row, freshness: holdingQuoteFreshness(row.item) }));
+    const staleCount = freshnessRows.filter((row) => row.freshness.stale).length;
+    const automaticValue = freshnessRows.reduce((sum, row) => sum + Math.max(0, row.calc.valueCny), 0);
+    const freshValue = freshnessRows
+      .filter((row) => !row.freshness.stale)
+      .reduce((sum, row) => sum + Math.max(0, row.calc.valueCny), 0);
+    const coverage = automaticValue > 0 ? freshValue / automaticValue : (automatic.length ? 0 : 1);
+    $("quote-coverage").textContent = automatic.length
+      ? `行情新鲜 ${formatPercent(coverage)}${staleCount ? ` · ${staleCount}项过期` : ""}`
+      : "均为本地估值";
     const latestTimes = vault.holdings
       .flatMap((item) => [item.quoteTime, item.intradayProxyQuoteTime])
       .filter(Boolean)
       .sort();
     $("valuation-time").textContent = latestTimes.length
-      ? `最近行情 ${new Date(latestTimes.at(-1)).toLocaleString("zh-CN", { hour12: false })}`
+      ? `${staleCount ? `${staleCount}项行情需留意 · ` : ""}最近行情 ${new Date(latestTimes.at(-1)).toLocaleString("zh-CN", { hour12: false })}`
       : `台账更新 ${new Date(vault.updatedAt).toLocaleString("zh-CN", { hour12: false })}`;
   }
 
@@ -1707,7 +1783,11 @@
     const container = $("strategy-bars");
     container.replaceChildren();
     const targets = targetBuckets();
-    $("strategy-date").textContent = strategyTarget?.latest_date || "暂无目标";
+    const strategyDate = strategyTarget?.latest_date || "";
+    const strategyAge = strategyDate ? Core.businessDaysElapsed(strategyDate, chinaDate()) : NaN;
+    const strategyStale = Number.isFinite(strategyAge) && strategyAge > 5;
+    $("strategy-date").textContent = strategyDate ? `${strategyDate}${strategyStale ? " · 需更新" : ""}` : "暂无目标";
+    $("strategy-date").classList.toggle("stale", strategyStale);
     if (!targets || !(metrics.totalAssets > 0)) {
       const empty = document.createElement("div");
       empty.className = "bar-empty";
@@ -1751,14 +1831,7 @@
   }
 
   function inferredEquityMarket(item) {
-    const descriptor = [item.name, item.code, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
-    if (/标普|S\s*&\s*P|纳斯达克|纳指|NASDAQ|美股|美国|(?:^|\s)(?:SPY|VOO|IVV|SPLG|QQQ|QQQM)(?:\.US)?(?:$|\s)/i.test(descriptor)) {
-      return { key: "us-equity", label: "美股" };
-    }
-    if (/恒生|港股|香港|(?:^|\s)(?:HSI|HSCEI)(?:$|\s)/i.test(descriptor)) {
-      return { key: "hk-equity", label: "港股" };
-    }
-    return null;
+    return Core.inferEquityMarket(item);
   }
 
   function marketClassification(item) {
@@ -1806,10 +1879,7 @@
   }
 
   function isTencentDomesticBroadProxy(item) {
-    const descriptor = [item.name, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
-    const code = String(item.code || "").trim().toUpperCase().replace(/\s+/g, "");
-    return /腾讯控股|TENCENT(?:\s+HOLDINGS)?/i.test(descriptor)
-      || /^(?:HK)?0*700(?:\.HK)?$/.test(code);
+    return Core.isTencentDomesticBroadProxy(item);
   }
 
   function strategyClassification(item) {
@@ -2202,10 +2272,7 @@
   }
 
   function normalizedGroupToken(value) {
-    return String(value || "")
-      .trim()
-      .toLocaleLowerCase("zh-CN")
-      .replace(/[\s·_\-—/()（）&.]+/g, "");
+    return Core.normalizedToken(value);
   }
 
   function meaningfulContributionLabel(value, groupLabel = "") {
@@ -2226,15 +2293,7 @@
   }
 
   function knownUnderlyingIdentity(item) {
-    const descriptor = [item.name, item.code, item.quoteName, item.underlyingName].filter(Boolean).join(" ");
-    const knownUnderlyings = [
-      { label: "标普500", pattern: /标普\s*500|S\s*&\s*P\s*500|S\s*P\s*500|(?:^|\s)(?:SPY|VOO|IVV|SPLG)(?:\.US)?(?:$|\s)/i },
-      { label: "纳斯达克100", pattern: /纳斯达克\s*100|纳指\s*100|NASDAQ\s*100|(?:^|\s)QQQ(?:M)?(?:\.US)?(?:$|\s)/i },
-      { label: "沪深300", pattern: /沪深\s*300|CSI\s*300/i },
-      { label: "中证A500", pattern: /中证\s*A\s*500|(?:^|\s)A500(?:$|\s)/i }
-    ];
-    const known = knownUnderlyings.find((rule) => rule.pattern.test(descriptor));
-    return known ? { key: `known:${normalizedGroupToken(known.label)}`, label: known.label } : null;
+    return Core.knownUnderlyingIdentity(item);
   }
 
   function dailyContributionIdentity(item, groupLabel) {
@@ -2252,12 +2311,10 @@
       };
     }
 
-    const explicitUnderlying = meaningfulContributionLabel(item.underlyingName, groupLabel);
-    if (explicitUnderlying) {
-      return { key: `underlying:${normalizedGroupToken(explicitUnderlying)}`, label: explicitUnderlying };
+    const stableUnderlying = Core.stableUnderlyingIdentity(item);
+    if (stableUnderlying && meaningfulContributionLabel(stableUnderlying.label, groupLabel)) {
+      return { key: `underlying:${stableUnderlying.id}`, label: stableUnderlying.label };
     }
-    const knownUnderlying = knownUnderlyingIdentity(item);
-    if (knownUnderlying && meaningfulContributionLabel(knownUnderlying.label, groupLabel)) return knownUnderlying;
     return {
       key: `instrument:${item.assetType || "other"}:${normalizedGroupToken(code || specificLabel || item.id)}`,
       label: specificLabel
@@ -2265,12 +2322,8 @@
   }
 
   function holdingGroupIdentity(item) {
-    const known = knownUnderlyingIdentity(item);
-    if (known) return known;
-    const explicit = String(item.underlyingName || "").trim();
-    if (explicit && !/^(?:AH股|美股|港股|国内权益)$/i.test(explicit)) {
-      return { key: `underlying:${normalizedGroupToken(explicit)}`, label: explicit };
-    }
+    const stable = Core.stableUnderlyingIdentity(item);
+    if (stable) return { key: `stable:${stable.id}`, label: stable.label };
 
     const code = normalizedGroupToken(item.code);
     if (code) return { key: `code:${code}`, label: item.name || item.code };
@@ -2384,7 +2437,9 @@
       ? "--"
       : formatQuotePrice(item.price, item.currency);
     appendCell(row, "最新价", latestPrice);
-    appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
+    appendCell(row, "当前价值", item.includeNav
+      ? `${formatMoney(calc.valueCny)}${calc.valueEstimated ? " · 估" : ""}`
+      : "不计入");
     const dailyCell = appendCell(row, "最新估值变动", calc.dailyPnlPending
       ? "待更新"
       : formatMoney(calc.dailyPnlCny));
@@ -2414,8 +2469,9 @@
     const quote = document.createElement("span");
     const quoteSucceeded = item.quoteTime && item.quoteStatus !== "更新失败";
     const fundStatus = fundQuotePresentation(item);
-    quote.className = `quote-status${fundStatus.pending ? " pending" : (quoteSucceeded ? " ok" : "")}`;
-    quote.textContent = item.pricingMode === "auto" ? fundStatus.text : "本地估值";
+    const freshness = holdingQuoteFreshness(item);
+    quote.className = `quote-status${freshness.stale ? " stale" : (fundStatus.pending ? " pending" : (quoteSucceeded ? " ok" : ""))}`;
+    quote.textContent = item.pricingMode === "auto" && freshness.stale ? freshness.label : (item.pricingMode === "auto" ? fundStatus.text : "本地估值");
     if (item.pricingMode === "auto") {
       const calibration = fundUsesEstimatedShares(item) && item.fundCalibratedAt
         ? `校准 ${String(item.fundCalibratedAt).slice(0, 10)} · ${holdingUsesFundNav(item) ? "净值" : "价格"} ${formatQuotePrice(item.fundCalibrationNav, item.currency)}`
@@ -2431,6 +2487,14 @@
 
     const actions = document.createElement("div");
     actions.className = "table-actions";
+    const mobileDetails = document.createElement("button");
+    mobileDetails.className = "table-action mobile-holding-detail-toggle";
+    mobileDetails.type = "button";
+    mobileDetails.textContent = "更多详情";
+    mobileDetails.dataset.action = "toggle-row-details";
+    mobileDetails.dataset.id = item.id;
+    mobileDetails.setAttribute("aria-expanded", "false");
+    actions.appendChild(mobileDetails);
     if (isTradeableHolding(item)) {
       const trade = document.createElement("button");
       trade.className = "table-action trade";
@@ -2524,14 +2588,17 @@
 
     const automatic = group.rows.filter(({ item }) => item.pricingMode === "auto");
     const successful = automatic.filter(({ item }) => item.quoteTime && item.quoteStatus !== "更新失败").length;
+    const staleQuotes = automatic.filter(({ item }) => holdingQuoteFreshness(item).stale).length;
     const pendingFunds = automatic.filter(({ calc }) => calc.dailyPnlPending).length;
     const intradayEstimatedFunds = group.rows.filter(({ calc }) => calc.dailyPnlEstimated).length;
     const quote = document.createElement("span");
-    quote.className = `quote-status${pendingFunds || intradayEstimatedFunds ? " pending" : (automatic.length && successful === automatic.length ? " ok" : "")}`;
+    quote.className = `quote-status${staleQuotes ? " stale" : (pendingFunds || intradayEstimatedFunds ? " pending" : (automatic.length && successful === automatic.length ? " ok" : ""))}`;
     quote.textContent = automatic.length
-      ? (intradayEstimatedFunds
+      ? (staleQuotes
+        ? `${staleQuotes}项行情过期`
+        : (intradayEstimatedFunds
         ? `参考估 ${intradayEstimatedFunds}笔${pendingFunds ? ` · 待净值 ${pendingFunds}笔` : ""}`
-        : (pendingFunds ? `待净值 ${pendingFunds}/${automatic.length}` : `行情 ${successful}/${automatic.length}`))
+        : (pendingFunds ? `待净值 ${pendingFunds}/${automatic.length}` : `行情 ${successful}/${automatic.length}`)))
       : "本地估值";
     quote.title = "各项价值已按最新汇率换算为人民币";
     appendCell(row, "行情", quote);
@@ -2579,6 +2646,9 @@
   function transactionTimestamp(transaction) {
     const createdAt = new Date(transaction.createdAt || `${transaction.date}T00:00:00+08:00`);
     if (!Number.isFinite(createdAt.getTime())) return transaction.date || "--";
+    if (transaction.date && chinaDate(createdAt) !== transaction.date) {
+      return `${transaction.date.slice(5).replace("-", "/")} · 补录`;
+    }
     return createdAt.toLocaleString("zh-CN", {
       timeZone: "Asia/Shanghai",
       month: "2-digit",
@@ -2608,6 +2678,12 @@
     transactions.forEach((transaction) => {
       if (!latestByHolding.has(transaction.holdingId)) latestByHolding.set(transaction.holdingId, transaction.id);
     });
+    const latestLedgerByHolding = new Map();
+    [...ledgerEvents]
+      .sort((left, right) => `${right.date || ""}|${right.createdAt || ""}`.localeCompare(`${left.date || ""}|${left.createdAt || ""}`))
+      .forEach((ledgerEvent) => {
+        if (!latestLedgerByHolding.has(ledgerEvent.holdingId)) latestLedgerByHolding.set(ledgerEvent.holdingId, ledgerEvent.id);
+      });
 
     entries.slice(0, 30).forEach((transaction) => {
       const holding = vault.holdings.find((item) => item.id === transaction.holdingId);
@@ -2635,7 +2711,36 @@
         const amount = appendCell(row, "成交额", `${numeric(transaction.amountCny) > 0 ? "+" : ""}${formatMoney(transaction.amountCny)}`);
         setSignedClass(amount, transaction.type === "income" ? numeric(transaction.amountCny) : 0);
         appendCell(row, "成交后持仓", transaction.note || "--");
-        appendCell(row, "操作", "");
+        const actions = document.createElement("div");
+        actions.className = "table-actions ledger-actions";
+        if (latestLedgerByHolding.get(transaction.holdingId) === transaction.id) {
+          const classification = document.createElement("select");
+          classification.className = "ledger-type-select";
+          classification.dataset.action = "reclassify-ledger";
+          classification.dataset.id = transaction.id;
+          [
+            ["external", "资金转入/出"],
+            ["correction", "录入更正"],
+            ["income", "收益/分红"]
+          ].forEach(([value, label]) => {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = label;
+            option.selected = transaction.type === value;
+            classification.appendChild(option);
+          });
+          actions.appendChild(classification);
+          if (("beforeHolding" in transaction) && ("afterHolding" in transaction)) {
+            const undo = document.createElement("button");
+            undo.className = "table-action";
+            undo.type = "button";
+            undo.textContent = "撤销";
+            undo.dataset.action = "undo-ledger";
+            undo.dataset.id = transaction.id;
+            actions.appendChild(undo);
+          }
+        }
+        appendCell(row, "操作", actions);
         body.appendChild(row);
         return;
       }
@@ -2859,7 +2964,9 @@
   function renderHistory() {
     const snapshots = sortedSnapshots();
     $("snapshot-count").textContent = `${snapshots.length}个记录日`;
-    $("history-latest-total").textContent = snapshots.length ? formatMoney(snapshots.at(-1).totalAssets) : "--";
+    $("history-latest-total").textContent = snapshots.length
+      ? `${formatMoney(snapshots.at(-1).totalAssets)}${snapshots.at(-1).estimated ? " · 估" : ""}`
+      : "--";
     const latestDate = snapshots.at(-1)?.date;
     setHistoryChange("day", latestDate ? changeFromBaseline(snapshots, latestDate, true) : null);
     setHistoryChange("week", latestDate ? changeFromBaseline(snapshots, weekStart(latestDate)) : null);
@@ -3011,6 +3118,7 @@
     }
     tradeForm.reset();
     $("trade-type").value = "buy";
+    $("trade-date").value = chinaDate();
     $("trade-form-error").textContent = "";
     populateTradeHoldingOptions(preselectedId);
     updateTradeFormForHolding();
@@ -3024,10 +3132,15 @@
     const values = tradeFormValues();
     const { item, mode, price, quantity, amountNative } = values;
     const type = $("trade-type").value;
+    const tradeDate = $("trade-date").value;
     const error = $("trade-form-error");
     error.textContent = "";
     if (!isTradeableHolding(item)) {
       error.textContent = "请选择可交易资产";
+      return;
+    }
+    if (!tradeDate || tradeDate > chinaDate()) {
+      error.textContent = "成交日期不能晚于今天";
       return;
     }
     if (!(price > 0)) {
@@ -3102,7 +3215,8 @@
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
         holdingId: item.id,
         type,
-        date: chinaDate(),
+        date: tradeDate,
+        flowDate: chinaDate(now),
         createdAt: now,
         assetName: item.name,
         assetCode: item.code,
@@ -3289,6 +3403,18 @@
     $("holding-ledger-notice").hidden = !locked;
   }
 
+  function updateUnderlyingIdHint() {
+    const identity = Core.stableUnderlyingIdentity({
+      name: $("holding-name").value,
+      code: $("holding-code").value,
+      underlyingName: $("holding-underlying-name").value,
+      underlyingId: ""
+    });
+    $("underlying-id-hint").textContent = identity
+      ? `将按 ${identity.id} 合并显示${identity.known ? "" : "（自定义）"}`
+      : "常见底层会自动保存稳定标识，例如 SP500";
+  }
+
   function resetHoldingForm() {
     holdingForm.reset();
     setHoldingLedgerLock(false);
@@ -3310,6 +3436,7 @@
     $("holding-form-error").textContent = "";
     $("dialog-title").textContent = "添加资产";
     setFieldVisibility();
+    updateUnderlyingIdHint();
   }
 
   function openHoldingDialog(item = null) {
@@ -3346,6 +3473,7 @@
       $("holding-include-nav").checked = Boolean(item.includeNav);
       setFieldVisibility();
       setHoldingLedgerLock(holdingHasTransactionReferences(item.id));
+      updateUnderlyingIdHint();
     }
     holdingDialog.showModal();
     $("holding-name").focus();
@@ -3412,6 +3540,7 @@
       basisResetAt: derivativeBasisChanged ? now : (existing.basisResetAt || null),
       updatedAt: now
     };
+    item.underlyingId = Core.stableUnderlyingIdentity({ ...item, underlyingId: "" })?.id || "";
     if (resetFundCalibration) {
       item.quantity = 0;
       item.price = 0;
@@ -3448,7 +3577,7 @@
     return "";
   }
 
-  function appendHoldingLedgerEvent(item, beforeValueCny, afterValueCny, kind, note = "") {
+  function appendHoldingLedgerEvent(item, beforeValueCny, afterValueCny, kind, note = "", beforeHolding = null, afterHolding = item) {
     const amountCny = afterValueCny - beforeValueCny;
     if (Math.abs(amountCny) < 0.005) return null;
     const now = new Date().toISOString();
@@ -3465,7 +3594,9 @@
       amountCny,
       capitalFlowCny: kind === "external" ? amountCny : 0,
       valuationAdjustmentCny: kind === "correction" ? amountCny : 0,
-      note
+      note,
+      beforeHolding: cloneData(beforeHolding),
+      afterHolding: cloneData(afterHolding)
     };
     vault.ledgerEvents.push(event);
     return event;
@@ -3506,7 +3637,9 @@
       beforeValueCny,
       afterValueCny,
       $("holding-change-kind").value,
-      existing ? "编辑资产产生的价值变化" : "首次录入资产"
+      existing ? "编辑资产产生的价值变化" : "首次录入资产",
+      existing,
+      item
     );
     const index = vault.holdings.findIndex((holding) => holding.id === item.id);
     if (index >= 0) vault.holdings[index] = item;
@@ -3529,13 +3662,65 @@
     const holding = vault.holdings.find((item) => item.id === id);
     if (!holding) return;
     const beforeValueCny = calculateHolding(holding).valueCny;
-    appendHoldingLedgerEvent(holding, beforeValueCny, 0, "external", "删除资产，视为资金转出");
+    appendHoldingLedgerEvent(holding, beforeValueCny, 0, "external", "删除资产，视为资金转出", holding, null);
     vault.deletedHoldings.push({ id, deletedAt: new Date().toISOString() });
     vault.holdings = vault.holdings.filter((item) => item.id !== id);
     markLocalUserChange();
     await recordSnapshot({ cloud: true });
     renderAll();
     showToast("资产已删除");
+  }
+
+  async function reclassifyLedgerEvent(eventId, type) {
+    if (!["external", "correction", "income"].includes(type)) return;
+    const ledgerEvent = vault.ledgerEvents.find((item) => item.id === eventId);
+    if (!ledgerEvent || ledgerEvent.type === type) return;
+    ledgerEvent.type = type;
+    ledgerEvent.capitalFlowCny = type === "external" ? numeric(ledgerEvent.amountCny) : 0;
+    ledgerEvent.valuationAdjustmentCny = type === "correction" ? numeric(ledgerEvent.amountCny) : 0;
+    ledgerEvent.updatedAt = new Date().toISOString();
+    markLocalUserChange();
+    await recordSnapshot({ cloud: true });
+    renderAll();
+    showToast("记录分类已更新");
+  }
+
+  async function undoLedgerEvent(eventId) {
+    const ledgerEvent = vault.ledgerEvents.find((item) => item.id === eventId);
+    if (!ledgerEvent || !("beforeHolding" in ledgerEvent) || !("afterHolding" in ledgerEvent)) {
+      showToast("这条旧记录只能重新分类，不能安全撤销");
+      return;
+    }
+    const latest = [...vault.ledgerEvents]
+      .filter((item) => item.holdingId === ledgerEvent.holdingId)
+      .sort((left, right) => `${left.date || ""}|${left.createdAt || ""}`.localeCompare(`${right.date || ""}|${right.createdAt || ""}`))
+      .at(-1);
+    if (latest?.id !== ledgerEvent.id) {
+      showToast("请先处理该资产更晚的调整记录");
+      return;
+    }
+    const current = vault.holdings.find((item) => item.id === ledgerEvent.holdingId) || null;
+    const expectedAfter = ledgerEvent.afterHolding;
+    if (expectedAfter && (!current || current.updatedAt !== expectedAfter.updatedAt)) {
+      showToast("资产后来又有修改，不能安全撤销这条调整");
+      return;
+    }
+    const now = new Date().toISOString();
+    if (ledgerEvent.beforeHolding) {
+      const restored = { ...cloneData(ledgerEvent.beforeHolding), updatedAt: now };
+      const index = vault.holdings.findIndex((item) => item.id === restored.id);
+      if (index >= 0) vault.holdings[index] = restored;
+      else vault.holdings.push(restored);
+    } else if (current) {
+      vault.holdings = vault.holdings.filter((item) => item.id !== current.id);
+      vault.deletedHoldings.push({ id: current.id, deletedAt: now });
+    }
+    vault.ledgerEvents = vault.ledgerEvents.filter((item) => item.id !== ledgerEvent.id);
+    vault.deletedLedgerEvents.push({ id: ledgerEvent.id, deletedAt: now });
+    markLocalUserChange();
+    await recordSnapshot({ cloud: true });
+    renderAll();
+    showToast("最近一次资产调整已撤销");
   }
 
   function requestConfirmation({ title, message, confirmLabel, action }) {
@@ -3716,6 +3901,9 @@
   $("holding-fund-input-mode").addEventListener("change", setFieldVisibility);
   $("holding-fund-seed-amount").addEventListener("input", updateFundCalibrationHint);
   $("holding-code").addEventListener("input", setFieldVisibility);
+  ["holding-name", "holding-code", "holding-underlying-name"].forEach((id) => {
+    $(id).addEventListener("input", updateUnderlyingIdHint);
+  });
   $("holding-bucket").addEventListener("change", setFieldVisibility);
   $("holding-currency").addEventListener("change", setFieldVisibility);
   $("holding-intraday-estimate-enabled").addEventListener("change", setFieldVisibility);
@@ -3733,6 +3921,13 @@
 
   $("holdings-body").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
+    if (button?.dataset.action === "toggle-row-details") {
+      const row = button.closest("tr");
+      const expanded = row?.classList.toggle("is-mobile-expanded") || false;
+      button.textContent = expanded ? "收起详情" : "更多详情";
+      button.setAttribute("aria-expanded", String(expanded));
+      return;
+    }
     const groupRow = event.target.closest("tr[data-group-key]");
     const groupKey = button?.dataset.action === "toggle-group" ? button.dataset.groupKey : groupRow?.dataset.groupKey;
     if (groupKey) {
@@ -3761,15 +3956,37 @@
   });
 
   $("transactions-body").addEventListener("click", (event) => {
-    const button = event.target.closest('button[data-action="undo-trade"]');
+    const button = event.target.closest("button[data-action]");
     if (!button) return;
-    const transaction = vault.transactions.find((item) => item.id === button.dataset.id);
-    if (!transaction) return;
-    requestConfirmation({
-      title: "撤销这笔买卖？",
-      message: `将撤销${transaction.type === "sell" ? "卖出" : "买入"} ${formatNumber(transaction.quantity, 4)} 份，并同步恢复持仓和现金。`,
-      confirmLabel: "撤销",
-      action: () => undoTrade(transaction.id)
+    if (button.dataset.action === "undo-trade") {
+      const transaction = vault.transactions.find((item) => item.id === button.dataset.id);
+      if (!transaction) return;
+      requestConfirmation({
+        title: "撤销这笔买卖？",
+        message: `将撤销${transaction.type === "sell" ? "卖出" : "买入"} ${formatNumber(transaction.quantity, 4)} 份，并同步恢复持仓和现金。`,
+        confirmLabel: "撤销",
+        action: () => undoTrade(transaction.id)
+      });
+      return;
+    }
+    if (button.dataset.action === "undo-ledger") {
+      const ledgerEvent = vault.ledgerEvents.find((item) => item.id === button.dataset.id);
+      if (!ledgerEvent) return;
+      requestConfirmation({
+        title: "撤销最近一次资产调整？",
+        message: `将恢复“${ledgerEvent.assetName || "该资产"}”调整前的状态。`,
+        confirmLabel: "撤销",
+        action: () => undoLedgerEvent(ledgerEvent.id)
+      });
+    }
+  });
+
+  $("transactions-body").addEventListener("change", (event) => {
+    const select = event.target.closest('select[data-action="reclassify-ledger"]');
+    if (!select) return;
+    reclassifyLedgerEvent(select.dataset.id, select.value).catch((error) => {
+      showToast(`更新失败：${error?.message || "请稍后重试"}`);
+      renderTransactions();
     });
   });
 
@@ -3797,6 +4014,20 @@
       holdingGroupingMode = button.dataset.groupMode;
       document.querySelectorAll(".group-mode-button").forEach((node) => node.classList.toggle("active", node === button));
       renderHoldings(portfolioMetrics());
+    });
+  });
+
+  document.querySelectorAll(".insight-switch-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      insightView = button.dataset.insightView;
+      document.querySelectorAll(".insight-switch-button").forEach((node) => {
+        const active = node.dataset.insightView === insightView;
+        node.classList.toggle("active", active);
+        node.setAttribute("aria-pressed", String(active));
+      });
+      document.querySelectorAll("[data-insight-card]").forEach((card) => {
+        card.classList.toggle("active", card.dataset.insightCard === insightView);
+      });
     });
   });
 
