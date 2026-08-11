@@ -98,3 +98,15 @@ test("底层资产视图将国债期货和期货保证金放入同一个一级�
   assert.equal(Core.isBondFuturesGroupMember({ assetType: "cash", name: "期货保证金", account: "期货账户" }), true);
   assert.equal(Core.isBondFuturesGroupMember({ assetType: "cash", name: "银行活期", account: "招商银行" }), false);
 });
+
+test("历史期间盈亏扣除转入和更正，并以期间资金基数计算收益率", () => {
+  const result = Core.historyPeriodMetrics({
+    previousTotal: 100000,
+    currentTotal: 112000,
+    capitalFlow: 10000,
+    adjustment: 500,
+    investedBase: 105000
+  });
+  assert.equal(result.change, 1500);
+  assert.equal(result.rate, 1500 / 105000);
+});

@@ -2816,22 +2816,33 @@
     const limits = { day: 90, week: 52, month: 36 };
     return [...groups.entries()].map(([key, snapshot], index, entries) => {
       const previous = index > 0 ? entries[index - 1][1] : null;
+      const capitalFlowCny = previous ? externalCapitalFlowBetween(previous.date, snapshot.date) : 0;
+      const valuationAdjustmentCny = previous ? valuationAdjustmentBetween(previous.date, snapshot.date) : 0;
+      const investedBase = previous ? modifiedDietzDenominator(numeric(previous.totalAssets), previous.date, snapshot.date) : null;
+      const metrics = previous ? Core.historyPeriodMetrics({
+        currentTotal: numeric(snapshot.totalAssets),
+        previousTotal: numeric(previous.totalAssets),
+        capitalFlow: capitalFlowCny,
+        adjustment: valuationAdjustmentCny,
+        investedBase
+      }) : { change: null, rate: null };
       return {
         key,
         label: periodLabel(key, period),
         date: snapshot.date,
         totalAssets: numeric(snapshot.totalAssets),
-        change: previous
-          ? numeric(snapshot.totalAssets) - numeric(previous.totalAssets)
-            - externalCapitalFlowBetween(previous.date, snapshot.date)
-            - valuationAdjustmentBetween(previous.date, snapshot.date)
-          : null
+        officialTotalAssets: Number.isFinite(Number(snapshot.officialTotalAssets)) ? Number(snapshot.officialTotalAssets) : null,
+        estimated: Boolean(snapshot.estimated),
+        capitalFlowCny,
+        valuationAdjustmentCny,
+        change: metrics.change,
+        rate: metrics.rate
       };
     }).slice(-limits[period]);
   }
 
   function datedExternalFlows(startExclusive, endInclusive) {
-    const transactionFlows = (vault?.transactions || []).map((item) => ({ date: item.date, amount: numeric(item.capitalFlowCny) }));
+    const transactionFlows = (vault?.transactions || []).map((item) => ({ date: Core.entryFlowDate(item), amount: numeric(item.capitalFlowCny) }));
     const ledgerFlows = (vault?.ledgerEvents || []).map((item) => ({ date: item.date, amount: numeric(item.capitalFlowCny) }));
     return [...transactionFlows, ...ledgerFlows].filter((item) => (
       item.date && item.date > startExclusive && item.date <= endInclusive && Math.abs(item.amount) > 1e-8
@@ -2879,6 +2890,91 @@
     return node;
   }
 
+  function historyPeriodName() {
+    return { day: "日", week: "周", month: "月" }[historyPeriod] || "期间";
+  }
+
+  function historyPointHeading(point) {
+    if (historyPeriod === "week") return `${point.key} 当周 · 截至 ${point.date}`;
+    if (historyPeriod === "month") return `${point.key} · 截至 ${point.date}`;
+    return point.date;
+  }
+
+  function historyPointAriaLabel(point) {
+    const parts = [historyPointHeading(point), `总资产 ${formatMoney(point.totalAssets)}`];
+    if (Number.isFinite(point.change)) parts.push(`${historyPeriodName()}盈亏 ${formatMoney(point.change)}`);
+    if (Number.isFinite(point.rate)) parts.push(`收益率 ${formatPercent(point.rate, 2)}`);
+    parts.push(point.estimated ? "含估值" : "正式记录");
+    return parts.join("，");
+  }
+
+  function createHistoryTooltip(chart) {
+    const tooltip = document.createElement("div");
+    tooltip.className = "history-tooltip";
+    tooltip.hidden = true;
+    tooltip.setAttribute("role", "status");
+    tooltip.setAttribute("aria-live", "polite");
+    chart.appendChild(tooltip);
+    return tooltip;
+  }
+
+  function addHistoryTooltipRow(tooltip, label, value, signedValue = null) {
+    const row = document.createElement("div");
+    row.className = "history-tooltip-row";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const number = document.createElement("strong");
+    number.textContent = value;
+    if (Number.isFinite(signedValue)) setSignedClass(number, signedValue);
+    row.append(name, number);
+    tooltip.appendChild(row);
+  }
+
+  function renderHistoryTooltip(tooltip, point) {
+    tooltip.replaceChildren();
+    const heading = document.createElement("div");
+    heading.className = "history-tooltip-heading";
+    const date = document.createElement("strong");
+    date.textContent = historyPointHeading(point);
+    const status = document.createElement("span");
+    status.className = `history-tooltip-status${point.estimated ? " estimated" : ""}`;
+    status.textContent = point.estimated ? "含估值" : "正式";
+    heading.append(date, status);
+    tooltip.appendChild(heading);
+    addHistoryTooltipRow(tooltip, "总资产", formatMoney(point.totalAssets));
+    if (Number.isFinite(point.change)) {
+      addHistoryTooltipRow(tooltip, `${historyPeriodName()}盈亏`, formatMoney(point.change), point.change);
+    }
+    if (Number.isFinite(point.rate)) {
+      addHistoryTooltipRow(tooltip, `${historyPeriodName()}收益率`, formatPercent(point.rate, 2), point.change);
+    }
+    if (point.estimated && Number.isFinite(point.officialTotalAssets)) {
+      addHistoryTooltipRow(tooltip, "正式净值口径", formatMoney(point.officialTotalAssets));
+    }
+    if (Math.abs(point.capitalFlowCny) > 1e-8) {
+      addHistoryTooltipRow(tooltip, "净转入", formatMoney(point.capitalFlowCny), point.capitalFlowCny);
+    }
+    if (Math.abs(point.valuationAdjustmentCny) > 1e-8) {
+      addHistoryTooltipRow(tooltip, "录入更正", formatMoney(point.valuationAdjustmentCny), point.valuationAdjustmentCny);
+    }
+    tooltip.hidden = false;
+  }
+
+  function positionHistoryTooltip(tooltip, horizontalPercent, verticalPercent, below = false) {
+    const chartWidth = tooltip.parentElement?.clientWidth || 0;
+    const halfWidthPercent = chartWidth ? tooltip.offsetWidth / 2 / chartWidth * 100 + 2.5 : 14;
+    const horizontalBoundary = Math.max(14, Math.min(48, halfWidthPercent));
+    tooltip.style.left = `${Math.max(horizontalBoundary, Math.min(100 - horizontalBoundary, horizontalPercent))}%`;
+    tooltip.style.top = `${Math.max(8, Math.min(88, verticalPercent))}%`;
+    tooltip.classList.toggle("below", below);
+  }
+
+  function setHistoryActiveKey(key = "") {
+    document.querySelectorAll("[data-history-key]").forEach((node) => {
+      node.classList.toggle("is-active", Boolean(key) && node.dataset.historyKey === key);
+    });
+  }
+
   function renderAssetLine(points) {
     const chart = $("history-chart");
     chart.replaceChildren();
@@ -2903,7 +2999,7 @@
     const y = (value) => padding.top + (maximum - value) / range * (height - padding.top - padding.bottom);
     const path = points.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(point.totalAssets).toFixed(2)}`).join(" ");
     const area = `${path} L${x(points.length - 1)},${height - padding.bottom} L${x(0)},${height - padding.bottom} Z`;
-    const svg = createSvgNode("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "总资产走势折线图" });
+    const svg = createSvgNode("svg", { viewBox: `0 0 ${width} ${height}`, role: "group", "aria-label": "总资产走势，悬停或点按查看记录信息" });
     const defs = createSvgNode("defs");
     const gradient = createSvgNode("linearGradient", { id: "history-area-gradient", x1: "0", y1: "0", x2: "0", y2: "1" });
     gradient.append(
@@ -2920,8 +3016,9 @@
     svg.appendChild(createSvgNode("path", { d: path, class: "history-line-path" }));
     if (points.length <= 32) {
       points.forEach((point, index) => {
-        const dot = createSvgNode("circle", { cx: x(index), cy: y(point.totalAssets), r: 3, class: "history-line-dot" });
-        dot.appendChild(createSvgNode("title", {}, `${point.date} ${formatMoney(point.totalAssets)}`));
+        const dot = createSvgNode("circle", {
+          cx: x(index), cy: y(point.totalAssets), r: 3, class: "history-line-dot", "data-history-key": point.key
+        });
         svg.appendChild(dot);
       });
     }
@@ -2929,7 +3026,90 @@
       createSvgNode("text", { x: padding.left, y: height - 8, class: "history-axis-label" }, points[0].label),
       createSvgNode("text", { x: width - padding.right, y: height - 8, "text-anchor": "end", class: "history-axis-label" }, points.at(-1).label)
     );
+    const focusLine = createSvgNode("line", {
+      y1: padding.top, y2: height - padding.bottom, class: "history-focus-line"
+    });
+    const focusDot = createSvgNode("circle", { r: 5, class: "history-focus-dot" });
+    focusLine.style.display = "none";
+    focusDot.style.display = "none";
+    svg.append(focusLine, focusDot);
+    const interaction = createSvgNode("rect", {
+      x: padding.left,
+      y: padding.top,
+      width: width - padding.left - padding.right,
+      height: height - padding.top - padding.bottom,
+      class: "history-line-interaction",
+      tabindex: "0",
+      role: "button",
+      "aria-label": "总资产历史图，使用左右方向键或点按查看信息"
+    });
+    svg.appendChild(interaction);
     chart.appendChild(svg);
+    const tooltip = createHistoryTooltip(chart);
+    let pinnedIndex = null;
+    let keyboardIndex = points.length - 1;
+
+    const showPoint = (index) => {
+      const safeIndex = Math.max(0, Math.min(points.length - 1, index));
+      const point = points[safeIndex];
+      keyboardIndex = safeIndex;
+      const pointX = x(safeIndex);
+      const pointY = y(point.totalAssets);
+      focusLine.setAttribute("x1", pointX);
+      focusLine.setAttribute("x2", pointX);
+      focusDot.setAttribute("cx", pointX);
+      focusDot.setAttribute("cy", pointY);
+      focusLine.style.display = "";
+      focusDot.style.display = "";
+      renderHistoryTooltip(tooltip, point);
+      positionHistoryTooltip(tooltip, pointX / width * 100, pointY / height * 100, pointY < height * 0.46);
+      interaction.setAttribute("aria-label", historyPointAriaLabel(point));
+      setHistoryActiveKey(point.key);
+    };
+    const hidePoint = () => {
+      tooltip.hidden = true;
+      focusLine.style.display = "none";
+      focusDot.style.display = "none";
+      setHistoryActiveKey();
+    };
+    const restorePinned = () => pinnedIndex === null ? hidePoint() : showPoint(pinnedIndex);
+    const indexFromEvent = (event) => {
+      const bounds = svg.getBoundingClientRect();
+      const svgX = (event.clientX - bounds.left) / Math.max(bounds.width, 1) * width;
+      return Math.round((svgX - padding.left) / (width - padding.left - padding.right) * (points.length - 1));
+    };
+    interaction.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") return;
+      showPoint(indexFromEvent(event));
+    });
+    interaction.addEventListener("pointerleave", restorePinned);
+    interaction.addEventListener("click", (event) => {
+      const index = indexFromEvent(event);
+      if (pinnedIndex === index) {
+        pinnedIndex = null;
+        hidePoint();
+      } else {
+        pinnedIndex = index;
+        showPoint(index);
+      }
+    });
+    interaction.addEventListener("focus", () => showPoint(keyboardIndex));
+    interaction.addEventListener("blur", restorePinned);
+    interaction.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "Home", "End", "Enter", " ", "Escape"].includes(event.key)) event.preventDefault();
+      if (event.key === "ArrowLeft") showPoint(keyboardIndex - 1);
+      if (event.key === "ArrowRight") showPoint(keyboardIndex + 1);
+      if (event.key === "Home") showPoint(0);
+      if (event.key === "End") showPoint(points.length - 1);
+      if (event.key === "Enter" || event.key === " ") {
+        pinnedIndex = pinnedIndex === keyboardIndex ? null : keyboardIndex;
+        restorePinned();
+      }
+      if (event.key === "Escape") {
+        pinnedIndex = null;
+        hidePoint();
+      }
+    });
   }
 
   function renderDeltaBars(points) {
@@ -2947,10 +3127,31 @@
     const axis = document.createElement("span");
     axis.className = "history-delta-axis";
     chart.appendChild(axis);
+    const tooltip = createHistoryTooltip(chart);
+    let pinnedKey = "";
+    let hoveredKey = "";
+    const hideTooltip = () => {
+      tooltip.hidden = true;
+      setHistoryActiveKey();
+    };
+    const showPoint = (point, index) => {
+      renderHistoryTooltip(tooltip, point);
+      const left = (index + 0.5) / changes.length * 100;
+      positionHistoryTooltip(tooltip, left, 10, true);
+      setHistoryActiveKey(point.key);
+    };
+    const restorePinned = () => {
+      const index = changes.findIndex((point) => point.key === pinnedKey);
+      if (index < 0) hideTooltip();
+      else showPoint(changes[index], index);
+    };
     changes.forEach((point, index) => {
       const column = document.createElement("div");
       column.className = "history-delta-column";
-      column.title = `${point.label} ${formatMoney(point.change)}`;
+      column.dataset.historyKey = point.key;
+      column.tabIndex = 0;
+      column.setAttribute("role", "button");
+      column.setAttribute("aria-label", historyPointAriaLabel(point));
       const track = document.createElement("div");
       track.className = "history-delta-track";
       const bar = document.createElement("span");
@@ -2961,7 +3162,38 @@
       const labelEvery = Math.max(1, Math.ceil(changes.length / 6));
       label.textContent = index % labelEvery === 0 || index === changes.length - 1 ? point.label : "";
       column.append(track, label);
+      column.addEventListener("pointerenter", () => {
+        hoveredKey = point.key;
+        showPoint(point, index);
+      });
+      column.addEventListener("pointerleave", () => {
+        hoveredKey = "";
+        restorePinned();
+      });
+      column.addEventListener("focus", () => showPoint(point, index));
+      column.addEventListener("blur", restorePinned);
+      column.addEventListener("click", (event) => {
+        event.stopPropagation();
+        pinnedKey = pinnedKey === point.key ? "" : point.key;
+        if (!pinnedKey) hideTooltip();
+        else showPoint(point, index);
+      });
+      column.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          column.click();
+        }
+        if (event.key === "Escape") {
+          pinnedKey = "";
+          hideTooltip();
+        }
+      });
       chart.appendChild(column);
+    });
+    chart.appendChild(tooltip);
+    chart.addEventListener("click", () => {
+      pinnedKey = "";
+      if (!hoveredKey) hideTooltip();
     });
   }
 

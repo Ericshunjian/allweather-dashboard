@@ -136,6 +136,15 @@
     return String(entry?.flowDate || entry?.date || "");
   }
 
+  function historyPeriodMetrics({ currentTotal, previousTotal, capitalFlow = 0, adjustment = 0, investedBase = previousTotal }) {
+    const change = Number(currentTotal) - Number(previousTotal) - Number(capitalFlow) - Number(adjustment);
+    const denominator = Number(investedBase);
+    return {
+      change,
+      rate: Number.isFinite(denominator) && Math.abs(denominator) > 1e-12 ? change / denominator : null
+    };
+  }
+
   function futuresValuation({ quantity, price, entry, previousClose, multiplier, direction, resetToday, quotePending, includeNav }) {
     const side = Number(direction) < 0 ? -1 : 1;
     const reference = resetToday ? Number(entry) : Number(previousClose);
@@ -164,6 +173,7 @@
     estimatedNativeValue,
     fundReferenceEligible,
     futuresValuation,
+    historyPeriodMetrics,
     inferStrategyBucket,
     inferEquityMarket,
     isTencentDomesticBroadProxy,
