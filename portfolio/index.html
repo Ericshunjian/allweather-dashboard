@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260811-ledger5">
+  <link rel="stylesheet" href="vault.css?v=20260811-ledger6">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -180,7 +180,7 @@
           </div>
         </div>
       </div>
-      <p class="quote-source-note">底层资产中 AH股 / 美股按品种二级折叠 · 不同币种按最新汇率折算人民币 · 策略大类按风险敞口汇总</p>
+      <p class="quote-source-note">底层资产中 AH股 / 美股 / 国债期货按一级组折叠 · 期货保证金与国债期货合并 · 不同币种按最新汇率折算人民币</p>
       <div id="holdings-empty" class="empty-state">
         <strong>尚未录入资产</strong>
         <span>添加第一项持仓后开始计算组合。</span>
@@ -550,7 +550,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="ledger-core.js?v=20260811-ledger5"></script>
-  <script src="vault.js?v=20260811-ledger5"></script>
+  <script src="ledger-core.js?v=20260811-ledger6"></script>
+  <script src="vault.js?v=20260811-ledger6"></script>
 </body>
 </html>

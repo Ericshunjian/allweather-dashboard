@@ -92,3 +92,9 @@ test("常见资产自动归入策略大类，海外指数不硬塞进国内策�
   assert.equal(Core.inferStrategyBucket({ assetType: "fund", name: "黄金ETF联接", code: "004253" }), "gold");
   assert.equal(Core.inferStrategyBucket({ assetType: "fund", name: "标普500 QDII" }), "other");
 });
+
+test("底层资产视图将国债期货和期货保证金放入同一个一级组", () => {
+  assert.equal(Core.isBondFuturesGroupMember({ assetType: "futures", code: "T2609.CFE" }), true);
+  assert.equal(Core.isBondFuturesGroupMember({ assetType: "cash", name: "期货保证金", account: "期货账户" }), true);
+  assert.equal(Core.isBondFuturesGroupMember({ assetType: "cash", name: "银行活期", account: "招商银行" }), false);
+});

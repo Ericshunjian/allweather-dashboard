@@ -2369,17 +2369,19 @@
     };
 
     if (mode === "underlying") {
-      const marketParents = [
+      const underlyingParents = [
         { key: "ah-equity", label: "AH股" },
-        { key: "us-equity", label: "美股" }
+        { key: "us-equity", label: "美股" },
+        { key: "bond-futures", label: "国债期货" }
       ];
       const parentKeyForRow = ({ item }) => {
+        if (Core.isBondFuturesGroupMember(item)) return "bond-futures";
         const key = dailyContributionClassification(item).key;
-        return marketParents.some((parent) => parent.key === key) ? key : "";
+        return underlyingParents.some((parent) => parent.key === key) ? key : "";
       };
       const otherRows = rows.filter((row) => !parentKeyForRow(row));
       const entries = buildGroups(otherRows);
-      marketParents.forEach((parent) => {
+      underlyingParents.forEach((parent) => {
         const parentRows = rows.filter((row) => parentKeyForRow(row) === parent.key);
         if (!parentRows.length) return;
         const children = buildGroups(parentRows).map((group) => ({

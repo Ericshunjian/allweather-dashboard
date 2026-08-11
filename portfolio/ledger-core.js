@@ -91,6 +91,16 @@
     return "other";
   }
 
+  function isBondFuturesGroupMember(item) {
+    if (knownUnderlyingIdentity(item)?.id === "CN_BOND_FUTURES" || item?.strategyBucket === "bond_futures") return true;
+    const descriptor = [item?.name, item?.underlyingName, item?.notes].filter(Boolean).join(" ");
+    if (/期货.*保证金|保证金.*期货/.test(descriptor)) return true;
+    const cashLike = ["cash", "wealth", "deposit"].includes(String(item?.assetType || ""));
+    return cashLike
+      && /期货/.test(String(item?.account || ""))
+      && /保证金|现金/.test(String(item?.name || ""));
+  }
+
   function businessDaysElapsed(fromDate, toDate) {
     if (!fromDate || !toDate || fromDate > toDate) return NaN;
     const cursor = new Date(`${fromDate}T00:00:00Z`);
@@ -157,6 +167,7 @@
     inferStrategyBucket,
     inferEquityMarket,
     isTencentDomesticBroadProxy,
+    isBondFuturesGroupMember,
     knownUnderlyingIdentity,
     mergeById,
     normalizedToken,
