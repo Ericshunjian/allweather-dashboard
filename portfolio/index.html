@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260811-private-ratios1">
+  <link rel="stylesheet" href="vault.css?v=20260811-ledger3">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -51,7 +51,13 @@
       </nav>
     </header>
 
-    <section class="summary-grid" aria-label="资产摘要">
+    <nav class="mobile-page-nav" aria-label="手机页面导航">
+      <button class="mobile-page-button active" type="button" data-mobile-page="overview" aria-current="page">总览</button>
+      <button class="mobile-page-button" type="button" data-mobile-page="assets">资产</button>
+      <button class="mobile-page-button" type="button" data-mobile-page="history">历史</button>
+    </nav>
+
+    <section class="summary-grid" data-mobile-section="overview" aria-label="资产摘要">
       <article class="summary-item">
         <div class="summary-label-row">
           <span>总资产</span>
@@ -61,7 +67,7 @@
         <small id="included-count">0项计入净资产</small>
       </article>
       <article class="summary-item">
-        <span>当日变动</span>
+        <span>最新估值变动</span>
         <strong id="daily-pnl">******</strong>
         <small id="quote-coverage">行情覆盖 0/0</small>
       </article>
@@ -77,7 +83,7 @@
       </article>
     </section>
 
-    <section class="analysis-grid">
+    <section class="analysis-grid" data-mobile-section="overview">
       <article class="analysis-panel">
         <div class="section-heading">
           <div>
@@ -100,7 +106,7 @@
       </article>
     </section>
 
-    <section class="holdings-section">
+    <section class="holdings-section" data-mobile-section="assets">
       <div class="section-heading holdings-heading">
         <div>
           <p class="eyebrow">POSITIONS</p>
@@ -113,10 +119,10 @@
       </div>
       <article class="daily-contribution-panel">
         <div class="daily-contribution-heading">
-          <div><small>DAILY MOVE</small><strong>今日盈亏贡献</strong></div>
-          <span>先按 AH股 / 美股 / 期货等汇总 · 点击查看前五品种</span>
+          <div><small>LATEST MOVE</small><strong>最新估值贡献</strong></div>
+          <span>先按 AH股 / 美股 / 黄金 / 期货等汇总 · 点击查看主要盈利与亏损</span>
         </div>
-        <div id="daily-contribution-chart" class="daily-contribution-chart" aria-label="今日盈亏贡献"></div>
+        <div id="daily-contribution-chart" class="daily-contribution-chart" aria-label="最新估值贡献"></div>
       </article>
       <div class="holding-insights-grid" aria-label="资产分类概览">
         <article class="holding-insight-card">
@@ -175,7 +181,7 @@
               <th>持仓</th>
               <th>最新价</th>
               <th>当前价值</th>
-              <th>当日变动</th>
+              <th>最新估值变动</th>
               <th>风险敞口</th>
               <th>资产权重</th>
               <th>累计盈亏</th>
@@ -188,17 +194,17 @@
       </div>
     </section>
 
-    <section class="transactions-section" aria-labelledby="transactions-title">
+    <section class="transactions-section" data-mobile-section="assets" aria-labelledby="transactions-title">
       <div class="section-heading transactions-heading">
         <div>
           <p class="eyebrow">TRADES</p>
-          <h2 id="transactions-title">买卖记录</h2>
+          <h2 id="transactions-title">交易与资金记录</h2>
         </div>
         <span id="transaction-count" class="status-pill">0笔记录</span>
       </div>
-      <p class="transaction-source-note">买入优先扣除同平台、同币种现金，不足部分视为新增投入；卖出款自动计入同平台现金。</p>
+      <p class="transaction-source-note">买卖、资金转入转出和录入更正分别记账；只有行情与收益变化计入盈亏。</p>
       <div id="transactions-empty" class="empty-state transaction-empty">
-        <strong>暂无买卖记录</strong>
+        <strong>暂无交易或资金记录</strong>
         <span>可在资产明细中点击“买卖”，或使用上方“记录买卖”。</span>
       </div>
       <div id="transactions-table-wrap" class="table-wrap" hidden>
@@ -221,14 +227,14 @@
       <p id="transactions-limit-note" class="transaction-limit-note" hidden>仅显示最近 30 笔记录。</p>
     </section>
 
-    <section class="history-section">
+    <section class="history-section" data-mobile-section="history">
       <div class="section-heading history-heading">
         <div>
           <p class="eyebrow">HISTORY</p>
           <h2>资产与盈亏记录</h2>
         </div>
         <div class="history-actions">
-          <span id="snapshot-count" class="status-pill">0个交易日</span>
+          <span id="snapshot-count" class="status-pill">0个记录日</span>
           <button id="record-today" class="secondary-button compact-button" type="button">记录今日</button>
         </div>
       </div>
@@ -248,7 +254,7 @@
           <div id="history-chart" class="history-chart" aria-label="总资产历史"></div>
         </article>
         <article class="history-panel">
-          <div class="history-panel-heading"><span>期间盈亏</span><small>已扣除交易本金</small></div>
+          <div class="history-panel-heading"><span>期间盈亏</span><small>已扣除资金流与录入更正</small></div>
           <div id="history-delta-chart" class="history-delta-chart" aria-label="期间资产变动历史"></div>
         </article>
       </div>
@@ -312,6 +318,30 @@
             <option value="other">其他</option>
           </select>
         </label>
+        <label>资产类别
+          <select id="holding-asset-class">
+            <option value="auto">自动判断</option>
+            <option value="equity">权益</option>
+            <option value="gold">黄金</option>
+            <option value="bond">债券</option>
+            <option value="cash">现金理财</option>
+            <option value="other">其他</option>
+          </select>
+        </label>
+        <label>盈亏大类
+          <select id="holding-market-class">
+            <option value="auto">自动判断</option>
+            <option value="ah-equity">AH股</option>
+            <option value="us-equity">美股</option>
+            <option value="global-equity">全球权益</option>
+            <option value="gold">黄金</option>
+            <option value="bond">债券</option>
+            <option value="futures">期货</option>
+            <option value="options">期权</option>
+            <option value="cash">现金理财</option>
+            <option value="other">其他</option>
+          </select>
+        </label>
         <label>币种
           <select id="holding-currency">
             <option value="CNY">人民币 CNY</option>
@@ -338,7 +368,7 @@
         </label>
         <label class="fund-reference-code-field full-span">参考代码（可选）
           <input id="holding-intraday-proxy-code" type="text" maxlength="40" placeholder="留空自动匹配；例如：000300、SPY、QQQ">
-          <small class="field-hint">国内基金使用盘中行情；美股 QDII 使用上一交易日涨跌。只影响带“估”的今日盈亏，黄金不使用</small>
+          <small class="field-hint">国内基金盘中使用参考行情，净值公布后自动替换；美股 QDII 使用最近一期，黄金不使用盘中参考</small>
         </label>
         <label class="quantity-field">数量 / 份额 / 手数
           <input id="holding-quantity" type="number" min="0" step="any" inputmode="decimal">
@@ -375,6 +405,14 @@
         </label>
         <label class="full-span">备注
           <input id="holding-notes" type="text" maxlength="100" placeholder="可选">
+        </label>
+        <label class="full-span">这次金额变化的性质
+          <select id="holding-change-kind">
+            <option value="external">转入 / 转出资金（不算盈亏）</option>
+            <option value="correction">更正录入（不算盈亏）</option>
+            <option value="income">收益 / 分红（计入盈亏）</option>
+          </select>
+          <small class="field-hint">只有资产总价值发生变化时才会记一笔；行情自动更新不会产生记录</small>
         </label>
         <label class="check-row full-span">
           <input id="holding-include-nav" type="checkbox" checked>
@@ -487,6 +525,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="vault.js?v=20260811-private-ratios1"></script>
+  <script src="vault.js?v=20260811-ledger3"></script>
 </body>
 </html>

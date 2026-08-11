@@ -338,6 +338,10 @@ input::placeholder {
   font-weight: 700;
 }
 
+.mobile-page-nav {
+  display: none;
+}
+
 .summary-label-row {
   display: flex;
   align-items: center;
@@ -719,6 +723,20 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
 .daily-contribution-details-hint {
   color: var(--muted);
   font-size: 9px;
+}
+
+.daily-contribution-detail-section + .daily-contribution-detail-section {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--line);
+}
+
+.daily-contribution-detail-section h4 {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .daily-contribution-details-list {
@@ -1327,6 +1345,11 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   background: rgba(11, 122, 97, 0.08);
 }
 
+.transaction-type.ledger {
+  color: var(--blue);
+  background: rgba(36, 103, 156, 0.08);
+}
+
 .transaction-asset-name,
 .transaction-asset-meta {
   display: block;
@@ -1846,6 +1869,44 @@ dialog::backdrop {
 
   .app-header {
     padding-top: 12px;
+  }
+
+  .mobile-page-nav {
+    position: sticky;
+    top: 8px;
+    z-index: 12;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin: 0 0 12px;
+    padding: 4px;
+    background: rgba(249, 250, 250, 0.94);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    box-shadow: 0 5px 16px rgba(36, 48, 58, 0.08);
+    backdrop-filter: blur(12px);
+  }
+
+  .mobile-page-button {
+    min-height: 38px;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .mobile-page-button.active {
+    color: var(--ink);
+    background: var(--paper);
+    box-shadow: 0 1px 5px rgba(36, 48, 58, 0.09);
+  }
+
+  #vault-app[data-mobile-page="overview"] [data-mobile-section]:not([data-mobile-section="overview"]),
+  #vault-app[data-mobile-page="assets"] [data-mobile-section]:not([data-mobile-section="assets"]),
+  #vault-app[data-mobile-page="history"] [data-mobile-section]:not([data-mobile-section="history"]) {
+    display: none;
   }
 
   h1 {

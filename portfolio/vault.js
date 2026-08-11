@@ -117,6 +117,7 @@
   const tradeForm = $("trade-form");
   const confirmDialog = $("confirm-dialog");
   const syncDialog = $("sync-dialog");
+  app.dataset.mobilePage = "overview";
 
   function bytesFromBase64(value) {
     const binary = atob(value);
@@ -215,27 +216,58 @@
     if (!Array.isArray(candidate.transactions)) {
       candidate.transactions = [];
     }
+    if (!Array.isArray(candidate.ledgerEvents)) candidate.ledgerEvents = [];
+    if (!Array.isArray(candidate.deletedHoldings)) candidate.deletedHoldings = [];
+    if (!Array.isArray(candidate.deletedTransactions)) candidate.deletedTransactions = [];
+    candidate.schemaVersion = Math.max(numeric(candidate.schemaVersion, 1), 2);
+    candidate.ledgerRevision = Math.max(0, numeric(candidate.ledgerRevision));
+    candidate.ledgerUpdatedAt = candidate.ledgerUpdatedAt || candidate.updatedAt || candidate.createdAt || new Date().toISOString();
+    candidate.cacheUpdatedAt = candidate.cacheUpdatedAt || candidate.updatedAt || candidate.ledgerUpdatedAt;
+    candidate.fxRates = candidate.fxRates || { CNY: 1, USD: null, HKD: null, updatedAt: null };
+    candidate.fxRates.CNY = 1;
+    candidate.fxRates.previous = { CNY: 1, USD: null, HKD: null, ...(candidate.fxRates.previous || {}) };
+    candidate.holdings.forEach((item) => {
+      if (!item.updatedAt) item.updatedAt = candidate.ledgerUpdatedAt;
+      if (!item.assetClassOverride) item.assetClassOverride = "auto";
+      if (!item.marketOverride) item.marketOverride = "auto";
+      if (item.assetType === "futures" && item.includeNav === false && !item.derivativeNavReviewed) {
+        item.includeNav = true;
+        item.derivativeNavReviewed = true;
+      }
+      if (item.assetType === "option" && item.includeNav === false && !item.derivativeNavReviewed) {
+        item.includeNav = true;
+        item.derivativeNavReviewed = true;
+      }
+      if (item.assetType === "option" && item.pricingMode === "auto") item.pricingMode = "manual";
+    });
   }
 
   function createEmptyVault() {
     return {
       version: 1,
+      schemaVersion: 2,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      ledgerUpdatedAt: new Date().toISOString(),
+      cacheUpdatedAt: new Date().toISOString(),
+      ledgerRevision: 0,
       holdings: [],
       transactions: [],
+      ledgerEvents: [],
+      deletedHoldings: [],
+      deletedTransactions: [],
       snapshots: [],
-      fxRates: { CNY: 1, USD: null, HKD: null, updatedAt: null }
+      fxRates: { CNY: 1, USD: null, HKD: null, previous: { CNY: 1, USD: null, HKD: null }, updatedAt: null }
     };
   }
 
   async function persistVault(options = {}) {
     if (!sessionKey || !vault) return;
-    vault.updatedAt = new Date().toISOString();
+    vault.cacheUpdatedAt = new Date().toISOString();
     const encrypted = await encryptVault(vault);
     localStorage.setItem(STORAGE_KEY, encrypted);
     hadLocalVault = true;
-    if (options.cloud !== false) queueCloudUpload(encrypted);
+    if (options.cloud === true) queueCloudUpload(encrypted);
   }
 
   async function loadVault() {
@@ -252,6 +284,10 @@
   }
 
   function markLocalUserChange() {
+    const now = new Date().toISOString();
+    vault.ledgerRevision = Math.max(0, numeric(vault.ledgerRevision)) + 1;
+    vault.ledgerUpdatedAt = now;
+    vault.updatedAt = now;
     localVaultHasUserChanges = true;
     localStorage.setItem(LOCAL_USER_DATA_KEY, "true");
   }
@@ -433,6 +469,112 @@
     renderSyncAccount();
   }
 
+  function timestampValue(value) {
+    return Date.parse(value || "") || 0;
+  }
+
+  function laterTimestamp(...values) {
+    return values.filter(Boolean).sort((left, right) => timestampValue(left) - timestampValue(right)).at(-1) || null;
+  }
+
+  function cloneData(value) {
+    return value == null ? value : JSON.parse(JSON.stringify(value));
+  }
+
+  function mergeById(localItems = [], remoteItems = [], updatedAtForItem = (item) => item.updatedAt || item.createdAt) {
+    const merged = new Map();
+    [...remoteItems, ...localItems].forEach((source) => {
+      if (!source?.id) return;
+      const item = cloneData(source);
+      const current = merged.get(item.id);
+      if (!current || timestampValue(updatedAtForItem(item)) >= timestampValue(updatedAtForItem(current))) {
+        merged.set(item.id, item);
+      }
+    });
+    return [...merged.values()];
+  }
+
+  const holdingQuoteCacheFields = Object.freeze([
+    "price", "previousClose", "quoteName", "quoteTime", "quoteDate", "quoteStatus", "quoteError",
+    "resolvedQuoteId", "quoteDailyChangeRate", "intradayProxyRate", "intradayProxyQuoteTime",
+    "intradayProxyFetchedAt", "intradayProxyStatus", "intradayProxyError", "intradayProxyResolvedQuoteId"
+  ]);
+
+  function holdingCacheTimestamp(item) {
+    return laterTimestamp(item?.quoteTime, item?.intradayProxyFetchedAt, item?.intradayProxyQuoteTime);
+  }
+
+  function mergeHoldings(localHoldings = [], remoteHoldings = [], tombstones = []) {
+    const localMap = new Map(localHoldings.filter((item) => item?.id).map((item) => [item.id, item]));
+    const remoteMap = new Map(remoteHoldings.filter((item) => item?.id).map((item) => [item.id, item]));
+    const deletedAtById = new Map(tombstones.map((item) => [item.id, timestampValue(item.deletedAt)]));
+    const ids = new Set([...localMap.keys(), ...remoteMap.keys()]);
+    return [...ids].flatMap((id) => {
+      const localItem = localMap.get(id);
+      const remoteItem = remoteMap.get(id);
+      const ledgerItem = !remoteItem || (localItem && timestampValue(localItem.updatedAt) >= timestampValue(remoteItem.updatedAt))
+        ? localItem
+        : remoteItem;
+      if (!ledgerItem || (deletedAtById.get(id) || 0) >= timestampValue(ledgerItem.updatedAt)) return [];
+      const result = cloneData(ledgerItem);
+      const cacheItem = timestampValue(holdingCacheTimestamp(localItem)) >= timestampValue(holdingCacheTimestamp(remoteItem))
+        ? localItem
+        : remoteItem;
+      if (cacheItem) holdingQuoteCacheFields.forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(cacheItem, field)) result[field] = cloneData(cacheItem[field]);
+      });
+      return [result];
+    });
+  }
+
+  function mergeSnapshots(localSnapshots = [], remoteSnapshots = []) {
+    const merged = new Map();
+    [...remoteSnapshots, ...localSnapshots].forEach((source) => {
+      if (!source?.date) return;
+      const current = merged.get(source.date);
+      const sourceTime = source.recordedAt || `${source.date}T00:00:00+08:00`;
+      const currentTime = current?.recordedAt || `${current?.date || ""}T00:00:00+08:00`;
+      if (!current || timestampValue(sourceTime) >= timestampValue(currentTime)) merged.set(source.date, cloneData(source));
+    });
+    return [...merged.values()].sort((left, right) => left.date.localeCompare(right.date)).slice(-750);
+  }
+
+  function mergeVaults(localVault, remoteVault) {
+    validateVault(localVault);
+    validateVault(remoteVault);
+    const localIsLater = timestampValue(localVault.ledgerUpdatedAt) >= timestampValue(remoteVault.ledgerUpdatedAt);
+    const base = cloneData(localIsLater ? localVault : remoteVault);
+    const deletedHoldings = mergeById(
+      localVault.deletedHoldings,
+      remoteVault.deletedHoldings,
+      (item) => item.deletedAt
+    );
+    const deletedTransactions = mergeById(
+      localVault.deletedTransactions,
+      remoteVault.deletedTransactions,
+      (item) => item.deletedAt
+    );
+    base.schemaVersion = 2;
+    base.ledgerRevision = Math.max(numeric(localVault.ledgerRevision), numeric(remoteVault.ledgerRevision));
+    base.ledgerUpdatedAt = laterTimestamp(localVault.ledgerUpdatedAt, remoteVault.ledgerUpdatedAt) || new Date().toISOString();
+    base.updatedAt = base.ledgerUpdatedAt;
+    base.cacheUpdatedAt = laterTimestamp(localVault.cacheUpdatedAt, remoteVault.cacheUpdatedAt, base.ledgerUpdatedAt);
+    base.deletedHoldings = deletedHoldings;
+    base.deletedTransactions = deletedTransactions;
+    base.holdings = mergeHoldings(localVault.holdings, remoteVault.holdings, deletedHoldings);
+    const deletedTransactionIds = new Set(deletedTransactions.map((item) => item.id));
+    base.transactions = mergeById(localVault.transactions, remoteVault.transactions)
+      .filter((item) => !deletedTransactionIds.has(item.id));
+    base.ledgerEvents = mergeById(localVault.ledgerEvents, remoteVault.ledgerEvents);
+    base.snapshots = mergeSnapshots(localVault.snapshots, remoteVault.snapshots);
+    const localFxTime = timestampValue(localVault.fxRates?.updatedAt);
+    base.fxRates = cloneData(localFxTime >= timestampValue(remoteVault.fxRates?.updatedAt)
+      ? localVault.fxRates
+      : remoteVault.fxRates);
+    validateVault(base);
+    return base;
+  }
+
   async function synchronizeVault(options = {}) {
     if (!sessionKey || !vault || !cloudSession || !syncConfigured()) return;
     if (cloudSyncPromise) return cloudSyncPromise;
@@ -442,28 +584,20 @@
         const remote = await fetchRemoteVault();
         const localRaw = localStorage.getItem(STORAGE_KEY);
         if (!remote?.vault) {
-          if (localRaw) await uploadRemoteVault(localRaw, vault.updatedAt);
+          if (localRaw) await uploadRemoteVault(localRaw, vault.ledgerUpdatedAt);
           markSyncComplete();
           if (!options.silent) showToast("本机加密台账已上传");
           return;
         }
         const remoteRaw = JSON.stringify(remote.vault);
         const remoteVault = await decryptVault(remoteRaw);
-        const remoteTime = Date.parse(remoteVault.updatedAt || remote.client_updated_at || 0) || 0;
-        const localTime = Date.parse(vault.updatedAt || 0) || 0;
-        if (!localVaultHasUserChanges || !hadLocalVault || remoteTime > localTime) {
-          vault = remoteVault;
-          localStorage.setItem(STORAGE_KEY, remoteRaw);
-          hadLocalVault = true;
-          markLocalUserChange();
-          renderAll();
-          if (!options.silent) showToast("已下载云端较新的资产数据");
-        } else if (localTime > remoteTime && localRaw) {
-          await uploadRemoteVault(localRaw, vault.updatedAt);
-          if (!options.silent) showToast("本机较新的资产数据已上传");
-        } else if (!options.silent) {
-          showToast("本机与云端已经一致");
-        }
+        vault = (!hadLocalVault && !localVaultHasUserChanges) ? remoteVault : mergeVaults(vault, remoteVault);
+        await recordSnapshot();
+        hadLocalVault = true;
+        const mergedRaw = localStorage.getItem(STORAGE_KEY);
+        await uploadRemoteVault(mergedRaw, vault.ledgerUpdatedAt || remote.client_updated_at);
+        renderAll();
+        if (!options.silent) showToast("本机与云端资产台账已合并同步");
         markSyncComplete();
       } catch (error) {
         setSyncStatus("error", "同步失败");
@@ -484,11 +618,9 @@
     setSyncStatus("syncing", "待同步");
     cloudUploadTimer = setTimeout(async () => {
       const payload = pendingEncryptedVault;
-      const clientUpdatedAt = vault?.updatedAt || new Date().toISOString();
       pendingEncryptedVault = null;
       try {
-        await uploadRemoteVault(payload, clientUpdatedAt);
-        markSyncComplete();
+        await synchronizeVault({ silent: true });
       } catch (error) {
         setSyncStatus("error", "同步失败");
         pendingEncryptedVault = payload;
@@ -589,16 +721,14 @@
       const publishedRate = numeric(item.quoteDailyChangeRate, NaN);
       return {
         text: proxyMove
-          ? `${proxyMove.referenceLabel} · ${proxyMove.name} ${formatPercent(proxyMove.rate, 2)} · 净值 ${navDate}`
+          ? `最新估值 · 净值 ${navDate}`
           : Number.isFinite(publishedRate)
-            ? `最近净值 ${navDate} · 日涨跌 ${formatPercent(publishedRate, 2)}${fundUsesEstimatedShares(item) ? " · 估算份额" : ""}`
+            ? `最新估值 · ${navDate}${fundUsesEstimatedShares(item) ? " · 份额估算" : ""}`
           : `待更新 · 净值 ${navDate}${fundUsesEstimatedShares(item) ? " · 估算份额" : ""}`,
         pending: !Number.isFinite(publishedRate)
       };
     }
-    const publishedRate = numeric(item.quoteDailyChangeRate, NaN);
-    const rateLabel = Number.isFinite(publishedRate) ? ` · 日涨跌 ${formatPercent(publishedRate, 2)}` : "";
-    return { text: `${item.quoteStatus || "基金净值"} · ${navDate}${rateLabel}`, pending: false };
+    return { text: `已更新 · ${navDate}${fundUsesEstimatedShares(item) ? " · 份额估算" : ""}`, pending: false };
   }
 
   function formatMoney(value, digits = 0) {
@@ -660,6 +790,7 @@
   }
 
   function assetClass(item) {
+    if (item.assetClassOverride && item.assetClassOverride !== "auto") return item.assetClassOverride;
     if (item.strategyBucket === "gold" || item.assetType === "gold") return "gold";
     if (item.strategyBucket === "bond_futures" || item.assetType === "bond" || item.assetType === "futures") return "bond";
     if (item.strategyBucket === "cash" || ["cash", "wealth", "deposit"].includes(item.assetType)) return "cash";
@@ -696,6 +827,48 @@
       if (!date || date > endInclusive || (startExclusive && date <= startExclusive)) return sum;
       return sum + numeric(transaction.capitalFlowCny);
     }, 0);
+  }
+
+  function ledgerAmountBetween(field, startExclusive, endInclusive) {
+    return (vault?.ledgerEvents || []).reduce((sum, event) => {
+      const date = String(event.date || "");
+      if (!date || date > endInclusive || (startExclusive && date <= startExclusive)) return sum;
+      return sum + numeric(event[field]);
+    }, 0);
+  }
+
+  function externalCapitalFlowBetween(startExclusive, endInclusive) {
+    return transactionCapitalFlowBetween(startExclusive, endInclusive)
+      + ledgerAmountBetween("capitalFlowCny", startExclusive, endInclusive);
+  }
+
+  function valuationAdjustmentBetween(startExclusive, endInclusive) {
+    return ledgerAmountBetween("valuationAdjustmentCny", startExclusive, endInclusive);
+  }
+
+  function openingNativeValueForFx(item, nativeValue, nativeDailyPnl, previousClose, multiplier, fx) {
+    if (["fixed", "interest"].includes(item.pricingMode)) {
+      const cashTransactionDelta = (vault?.transactions || [])
+        .filter((transaction) => transaction.cashHoldingId === item.id && transaction.date === chinaDate())
+        .reduce((sum, transaction) => sum + numeric(transaction.cashDeltaNative), 0);
+      const directAdditionCny = (vault?.ledgerEvents || [])
+        .filter((event) => event.holdingId === item.id && event.date === chinaDate() && event.type !== "correction")
+        .reduce((sum, event) => sum + numeric(event.amountCny), 0);
+      return Math.max(0, nativeValue - nativeDailyPnl - cashTransactionDelta - (fx > 0 ? directAdditionCny / fx : 0));
+    }
+    if (["futures", "option"].includes(item.assetType)) {
+      return nativeValue - nativeDailyPnl;
+    }
+    const todayTrades = transactionsForHolding(item.id).filter((transaction) => transaction.date === chinaDate());
+    if (todayTrades.length) {
+      const buys = todayTrades.filter((transaction) => transaction.type === "buy").reduce((sum, transaction) => sum + numeric(transaction.quantity), 0);
+      const sells = todayTrades.filter((transaction) => transaction.type === "sell").reduce((sum, transaction) => sum + numeric(transaction.quantity), 0);
+      return Math.max(0, numeric(item.quantity) - buys + sells) * previousClose * multiplier;
+    }
+    const todayExternal = (vault?.ledgerEvents || [])
+      .filter((event) => event.holdingId === item.id && event.date === chinaDate())
+      .reduce((sum, event) => sum + numeric(event.capitalFlowCny), 0);
+    return Math.max(0, nativeValue - nativeDailyPnl - (fx > 0 ? todayExternal / fx : 0));
   }
 
   function tradedHoldingDailyPnl(item, currentPrice, previousClose, multiplier) {
@@ -757,22 +930,24 @@
     if (["fixed", "interest"].includes(item.pricingMode)) {
       nativeValue = accruedFixedValue(item);
       const dailyRate = numeric(item.annualRate) / 365;
-      nativeDailyPnl = item.pricingMode === "interest" ? nativeValue * dailyRate : 0;
+      nativeDailyPnl = item.pricingMode === "interest" ? numeric(item.fixedValue) * dailyRate : 0;
       nativePnl = nativeValue - numeric(item.fixedValue);
       nativeExposure = item.strategyBucket === "cash" ? 0 : nativeValue;
     } else if (item.assetType === "futures") {
+      const dailyReferencePrice = chinaDate(item.basisResetAt) === chinaDate() ? entry : previousClose;
       nativeExposure = direction * quantity * price * multiplier;
       nativePnl = direction * quantity * (price - entry) * multiplier;
       nativeDailyPnl = futuresDailyQuotePending(item)
         ? 0
-        : direction * quantity * (price - previousClose) * multiplier;
+        : direction * quantity * (price - dailyReferencePrice) * multiplier;
       nativeValue = item.includeNav ? nativePnl : 0;
     } else if (item.assetType === "option") {
+      const dailyReferencePrice = chinaDate(item.basisResetAt) === chinaDate() ? entry : previousClose;
       const optionDelta = numeric(item.delta);
       const underlyingPrice = numeric(item.underlyingPrice);
       nativeExposure = direction * optionDelta * quantity * underlyingPrice * multiplier;
       nativePnl = direction * quantity * (price - entry) * multiplier;
-      nativeDailyPnl = direction * quantity * (price - previousClose) * multiplier;
+      nativeDailyPnl = direction * quantity * (price - dailyReferencePrice) * multiplier;
       nativeValue = item.includeNav ? direction * quantity * price * multiplier : 0;
     } else {
       nativeValue = quantity * price * multiplier;
@@ -804,6 +979,18 @@
     else if (dailyPnlPending) nativeDailyPnl = 0;
 
     const validFx = Number.isFinite(fx) && fx > 0;
+    const todayExternalAdditionCny = (vault?.ledgerEvents || [])
+      .filter((event) => event.holdingId === item.id && event.date === chinaDate())
+      .reduce((sum, event) => sum + Math.max(0, numeric(event.capitalFlowCny)), 0);
+    if (validFx && todayExternalAdditionCny > 0 && nativeValue > 0) {
+      const addedShare = Math.min(1, todayExternalAdditionCny / (nativeValue * fx));
+      nativeDailyPnl *= 1 - addedShare;
+    }
+    const previousFx = item.currency === "CNY" ? 1 : numeric(vault.fxRates?.previous?.[item.currency], fx);
+    const openingNativeValue = openingNativeValueForFx(item, nativeValue, nativeDailyPnl, previousClose, multiplier, fx);
+    const dailyPnlCny = validFx
+      ? nativeDailyPnl * fx + openingNativeValue * (fx - (previousFx > 0 ? previousFx : fx))
+      : 0;
     return {
       nativeValue,
       nativeExposure,
@@ -812,7 +999,8 @@
       valueCny: item.includeNav && validFx ? nativeValue * fx : 0,
       exposureCny: validFx ? nativeExposure * fx : 0,
       pnlCny: (validFx ? nativePnl * fx : 0) + realizedPnlCny,
-      dailyPnlCny: validFx ? nativeDailyPnl * fx : 0,
+      dailyPnlCny,
+      fxDailyPnlCny: validFx ? openingNativeValue * (fx - (previousFx > 0 ? previousFx : fx)) : 0,
       fx,
       validFx,
       derivative,
@@ -826,13 +1014,39 @@
 
   function portfolioMetrics() {
     const rows = vault.holdings.map((item) => ({ item, calc: calculateHolding(item) }));
+    const ledgerRows = (vault.ledgerEvents || [])
+      .filter((event) => event.date === chinaDate() && event.type === "income" && Math.abs(numeric(event.amountCny)) >= 0.005)
+      .map((event) => {
+        const holding = vault.holdings.find((item) => item.id === event.holdingId);
+        const item = holding || {
+          id: event.holdingId,
+          name: event.assetName || "收益/分红",
+          code: event.assetCode || "",
+          account: event.account || "",
+          assetType: "cash",
+          strategyBucket: "cash",
+          currency: "CNY",
+          assetClassOverride: "cash",
+          marketOverride: "cash"
+        };
+        return {
+          item,
+          calc: {
+            dailyPnlCny: numeric(event.amountCny),
+            dailyPnlEstimated: false,
+            dailyPnlCarried: false,
+            dailyPnlPending: false,
+            intradayProxyMove: null
+          }
+        };
+      });
     const totalAssets = rows.reduce((sum, row) => sum + row.calc.valueCny, 0);
-    const dailyPnl = rows.reduce((sum, row) => sum + row.calc.dailyPnlCny, 0);
+    const dailyPnl = [...rows, ...ledgerRows].reduce((sum, row) => sum + row.calc.dailyPnlCny, 0);
     const grossExposure = rows.reduce((sum, row) => sum + Math.abs(row.calc.exposureCny), 0);
     const includedCount = rows.filter((row) => row.item.includeNav).length;
     const derivativeCount = rows.filter((row) => row.calc.derivative).length;
     const estimatedDailyCount = rows.filter((row) => row.calc.dailyPnlEstimated).length;
-    return { rows, totalAssets, dailyPnl, grossExposure, includedCount, derivativeCount, estimatedDailyCount };
+    return { rows, ledgerRows, totalAssets, dailyPnl, grossExposure, includedCount, derivativeCount, estimatedDailyCount };
   }
 
   function inferQuoteId(item) {
@@ -1298,6 +1512,7 @@
       try {
         const quote = await fetchQuote(quoteId);
         vault.fxRates[currency] = quote.price;
+        vault.fxRates.previous[currency] = quote.previousClose;
         vault.fxRates.updatedAt = quote.quoteTime;
       } catch (error) {
         // Retain the last encrypted FX observation when the endpoint is unavailable.
@@ -1328,7 +1543,9 @@
 
     await persistVault();
     renderAll();
-    await recordSnapshot();
+    const todaySnapshot = vault.snapshots.find((item) => item.date === chinaDate());
+    const snapshotIsStale = Date.now() - timestampValue(todaySnapshot?.recordedAt) > 60 * 60 * 1000;
+    await recordSnapshot({ cloud: !todaySnapshot || snapshotIsStale });
     button.disabled = false;
     button.textContent = "刷新行情";
     if (!options.silent) showToast(`行情更新完成：${success}/${attempted}`);
@@ -1346,6 +1563,8 @@
   async function recordSnapshot(options = {}) {
     const metrics = portfolioMetrics();
     if (!(metrics.totalAssets > 0)) {
+      await persistVault({ cloud: options.cloud === true });
+      renderHistory();
       if (options.notify) showToast("暂无可记录的总资产");
       return;
     }
@@ -1354,13 +1573,18 @@
       .filter((item) => item?.date && item.date < date && Number.isFinite(Number(item.totalAssets)))
       .sort((left, right) => left.date.localeCompare(right.date))
       .at(-1);
-    const capitalFlowCny = previousSnapshot ? transactionCapitalFlowBetween(previousSnapshot.date, date) : 0;
+    const capitalFlowCny = previousSnapshot ? externalCapitalFlowBetween(previousSnapshot.date, date) : 0;
+    const valuationAdjustmentCny = previousSnapshot ? valuationAdjustmentBetween(previousSnapshot.date, date) : 0;
     const snapshot = {
       date,
+      recordedAt: new Date().toISOString(),
       totalAssets: metrics.totalAssets,
-      dailyPnl: previousSnapshot ? metrics.totalAssets - numeric(previousSnapshot.totalAssets) - capitalFlowCny : metrics.dailyPnl,
+      dailyPnl: previousSnapshot
+        ? metrics.totalAssets - numeric(previousSnapshot.totalAssets) - capitalFlowCny - valuationAdjustmentCny
+        : 0,
       marketDailyPnl: metrics.dailyPnl,
       capitalFlowCny,
+      valuationAdjustmentCny,
       grossExposure: metrics.grossExposure
     };
     const existingIndex = vault.snapshots.findIndex((item) => item.date === date);
@@ -1370,7 +1594,7 @@
       .filter((item) => item && item.date && Number.isFinite(Number(item.totalAssets)))
       .sort((left, right) => left.date.localeCompare(right.date))
       .slice(-750);
-    await persistVault();
+    await persistVault({ cloud: options.cloud === true });
     renderHistory();
     if (options.notify) showToast(`已记录 ${date} 总资产`);
   }
@@ -1399,7 +1623,7 @@
 
   function renderSummary(metrics) {
     setSummaryValue("total-assets", formatMoney(metrics.totalAssets));
-    setSummaryValue("daily-pnl", `${metrics.estimatedDailyCount ? "估 " : ""}${formatMoney(metrics.dailyPnl)}`, metrics.dailyPnl);
+    setSummaryValue("daily-pnl", formatMoney(metrics.dailyPnl), metrics.dailyPnl);
     setSummaryValue("gross-exposure", formatMultiple(metrics.totalAssets > 0
       ? metrics.grossExposure / metrics.totalAssets
       : 0));
@@ -1538,6 +1762,21 @@
   }
 
   function marketClassification(item) {
+    const overrideLabels = {
+      "ah-equity": "AH股",
+      "us-equity": "美股",
+      "hk-equity": "港股",
+      "global-equity": "全球权益",
+      futures: "期货",
+      options: "期权",
+      gold: "黄金",
+      bond: "债券",
+      cash: "现金理财",
+      other: "其他"
+    };
+    if (item.marketOverride && item.marketOverride !== "auto") {
+      return { key: item.marketOverride, label: overrideLabels[item.marketOverride] || "其他" };
+    }
     const currency = item.currency || "CNY";
     const broadClass = assetClass(item);
     if (broadClass !== "equity") return { key: broadClass, label: classLabels[broadClass] || "其他" };
@@ -1557,7 +1796,7 @@
     if (market.key === "cn-equity" && /全球|海外/i.test([item.name, item.quoteName, item.underlyingName].filter(Boolean).join(" "))) {
       return { key: "global-equity", label: "全球权益" };
     }
-    if (["cn-equity", "hk-equity"].includes(market.key)) return { key: "ah-equity", label: "AH股" };
+    if (["cn-equity", "hk-equity", "ah-equity"].includes(market.key)) return { key: "ah-equity", label: "AH股" };
     return market;
   }
 
@@ -1785,67 +2024,73 @@
       detailItem.pending &&= calc.dailyPnlPending;
       detailsByUnderlying.set(identity.key, detailItem);
     });
-    return [...detailsByUnderlying.values()]
-      .filter((item) => group.value > 0 ? item.value > 0 : (group.value < 0 ? item.value < 0 : true))
-      .sort((left, right) => group.value > 0 ? right.value - left.value : (group.value < 0 ? left.value - right.value : Number(right.pending) - Number(left.pending)))
-      .slice(0, 5);
+    return [...detailsByUnderlying.values()];
   }
 
   function createDailyContributionDetails(group, panelId) {
-    const positive = group.value > 0;
-    const negative = group.value < 0;
-    const neutral = !positive && !negative;
-    const directionLabel = positive ? "盈利" : (negative ? "亏损" : (group.pending ? "待净值" : "当日"));
     const details = dailyContributionDetails(group);
-    const directionalTotal = details.reduce((sum, item) => sum + Math.abs(item.value), 0);
+    const gains = details.filter((item) => item.value > 0).sort((left, right) => right.value - left.value).slice(0, 5);
+    const losses = details.filter((item) => item.value < 0).sort((left, right) => left.value - right.value).slice(0, 5);
+    const pending = details.filter((item) => item.pending && Math.abs(item.value) < 0.005).slice(0, 5);
     const panel = document.createElement("div");
     panel.id = panelId;
     panel.className = "daily-contribution-details";
     panel.setAttribute("role", "region");
-    panel.setAttribute("aria-label", `${group.label}${neutral ? "资产明细" : `${directionLabel}贡献前五品种`}`);
+    panel.setAttribute("aria-label", `${group.label}主要盈利与亏损品种`);
     const heading = document.createElement("div");
     heading.className = "daily-contribution-details-heading";
     const title = document.createElement("strong");
-    title.textContent = neutral ? `${group.label}资产明细` : `${directionLabel}贡献前五品种`;
+    title.textContent = `${group.label}明细`;
     const mergeNote = document.createElement("span");
     mergeNote.textContent = "同品种跨平台合并";
     heading.append(title, mergeNote);
-    const list = document.createElement("ol");
-    list.className = "daily-contribution-details-list";
-    details.forEach((detail, index) => {
-      const listItem = document.createElement("li");
-      const rank = document.createElement("span");
-      rank.className = "daily-contribution-detail-rank";
-      rank.textContent = String(index + 1);
-      const identity = document.createElement("div");
-      identity.className = "daily-contribution-detail-identity";
-      const label = document.createElement("strong");
-      label.textContent = detail.label;
-      label.title = detail.label;
-      const share = document.createElement("small");
-      share.textContent = detail.pending
-        ? "等待当日净值"
-        : detail.carried
-          ? `最近净值 ${detail.navDate}`
-        : (directionalTotal > 0
-        ? `${detail.estimated ? `${detail.usQdii ? "美股上一交易日" : "盘中参考"} · ` : ""}占所列${directionLabel}贡献 ${formatPercent(Math.abs(detail.value) / directionalTotal)}`
-        : "当日暂无变动");
-      identity.append(label, share);
-      const value = document.createElement("strong");
-      if (detail.value > 0) value.className = "positive";
-      else if (detail.value < 0) value.className = "negative";
-      value.textContent = detail.pending
-        ? "待净值"
-        : `${detail.estimated ? "估 " : ""}${detail.value > 0 ? `+${formatMoney(detail.value)}` : formatMoney(detail.value)}`;
-      listItem.append(rank, identity, value);
-      list.appendChild(listItem);
-    });
+
+    const appendSection = (sectionTitle, items, direction) => {
+      if (!items.length) return;
+      const section = document.createElement("section");
+      section.className = "daily-contribution-detail-section";
+      const sectionHeading = document.createElement("h4");
+      sectionHeading.textContent = sectionTitle;
+      const list = document.createElement("ol");
+      list.className = "daily-contribution-details-list";
+      items.forEach((detail, index) => {
+        const listItem = document.createElement("li");
+        const rank = document.createElement("span");
+        rank.className = "daily-contribution-detail-rank";
+        rank.textContent = String(index + 1);
+        const identity = document.createElement("div");
+        identity.className = "daily-contribution-detail-identity";
+        const label = document.createElement("strong");
+        label.textContent = detail.label;
+        label.title = detail.label;
+        const source = document.createElement("small");
+        source.textContent = detail.pending ? "等待最新可用净值" : "最新可用估值";
+        identity.append(label, source);
+        const value = document.createElement("strong");
+        value.className = direction;
+        value.textContent = detail.pending
+          ? "待更新"
+          : `${detail.value > 0 ? "+" : ""}${formatMoney(detail.value)}`;
+        listItem.append(rank, identity, value);
+        list.appendChild(listItem);
+      });
+      section.append(sectionHeading, list);
+      panel.appendChild(section);
+    };
     const hint = document.createElement("p");
     hint.className = "daily-contribution-details-hint";
-    hint.textContent = neutral && group.pending
-      ? "黄金不使用盘中估值；当日净值更新后显示贡献"
-      : "仅显示同方向贡献最大的五个品种";
-    panel.append(heading, list, hint);
+    hint.textContent = "各列最多五个品种；基金盘中用参考估值，净值公布后自动替换，QDII沿用最近一期。";
+    panel.appendChild(heading);
+    appendSection("盈利贡献前五", gains, "positive");
+    appendSection("亏损拖累前五", losses, "negative");
+    appendSection("等待更新", pending, "");
+    if (!gains.length && !losses.length && !pending.length) {
+      const empty = document.createElement("p");
+      empty.className = "daily-contribution-details-hint";
+      empty.textContent = "当前没有可显示的估值变动。";
+      panel.appendChild(empty);
+    }
+    panel.appendChild(hint);
     return panel;
   }
 
@@ -1853,7 +2098,7 @@
     const chart = $("daily-contribution-chart");
     chart.replaceChildren();
     const grouped = new Map();
-    metrics.rows.forEach((row) => {
+    [...metrics.rows, ...(metrics.ledgerRows || [])].forEach((row) => {
       const category = dailyContributionClassification(row.item);
       const groupKey = `daily:${category.key}`;
       const current = grouped.get(groupKey) || { ...category, key: groupKey, value: 0, rows: [], estimated: false, carried: false, pending: true };
@@ -1868,19 +2113,20 @@
     const contributions = [...grouped.values()].filter((item) => Math.abs(item.value) >= 0.005);
     const gains = contributions
       .filter((item) => item.value > 0)
-      .sort((left, right) => right.value - left.value)
-      .slice(0, 3);
+      .sort((left, right) => right.value - left.value);
     const losses = contributions
       .filter((item) => item.value < 0)
-      .sort((left, right) => left.value - right.value)
-      .slice(0, 3);
-    const selected = [...gains, ...losses];
+      .sort((left, right) => left.value - right.value);
+    const pendingGroups = [...grouped.values()]
+      .filter((item) => item.pending && Math.abs(item.value) < 0.005)
+      .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+    const selected = [...gains, ...losses, ...pendingGroups];
     const gold = grouped.get("daily:gold");
     if (gold && !selected.some((item) => item.key === gold.key)) selected.push(gold);
     if (!selected.length) {
       const empty = document.createElement("div");
       empty.className = "daily-contribution-empty";
-      empty.textContent = vault.holdings.length ? "今日暂无可显示的价格变动" : "录入并刷新行情后显示当日贡献";
+      empty.textContent = vault.holdings.length ? "暂无可显示的最新估值变动" : "录入并刷新行情后显示估值贡献";
       chart.appendChild(empty);
       return;
     }
@@ -1929,8 +2175,8 @@
       const value = document.createElement("strong");
       value.className = `daily-contribution-value ${direction}`;
       value.textContent = item.pending
-        ? "待净值"
-        : `${item.estimated ? "估 " : ""}${item.value > 0 ? `+${formatMoney(item.value)}` : formatMoney(item.value)}`;
+        ? "待更新"
+        : `${item.value > 0 ? `+${formatMoney(item.value)}` : formatMoney(item.value)}`;
       row.setAttribute("aria-label", `${item.label} ${movementLabel} ${value.textContent}`);
       row.append(labelWrap, track, value);
       row.addEventListener("click", () => {
@@ -2139,10 +2385,10 @@
       : formatQuotePrice(item.price, item.currency);
     appendCell(row, "最新价", latestPrice);
     appendCell(row, "当前价值", item.includeNav ? formatMoney(calc.valueCny) : "不计入");
-    const dailyCell = appendCell(row, "当日变动", calc.dailyPnlPending
-      ? "待净值"
-      : `${calc.dailyPnlEstimated ? "估 " : (calc.dailyPnlCarried ? "净值日 " : "")}${formatMoney(calc.dailyPnlCny)}`);
-    if (calc.dailyPnlPending) dailyCell.title = `最近净值日期 ${fundNavDate(item)}，当日盈亏暂不计算`;
+    const dailyCell = appendCell(row, "最新估值变动", calc.dailyPnlPending
+      ? "待更新"
+      : formatMoney(calc.dailyPnlCny));
+    if (calc.dailyPnlPending) dailyCell.title = `最近净值日期 ${fundNavDate(item)}，等待最新可用估值`;
     else {
       setSignedClass(dailyCell, calc.dailyPnlCny);
       if (calc.futuresDailyQuotePending) dailyCell.title = `最近期货行情为 ${chinaDate(item.quoteTime)}；国债期货无夜盘，新交易日行情出现前当日盈亏按0计算`;
@@ -2266,7 +2512,7 @@
     appendCell(row, "持仓", `${group.rows.length}笔`);
     appendCell(row, "最新价", "展开查看");
     appendCell(row, "当前价值", formatMoney(totals.value));
-    const dailyCell = appendCell(row, "当日变动", `${totals.estimatedDailyCount ? "估 " : (totals.carriedDailyCount ? "净值日 " : "")}${formatMoney(totals.daily)}`);
+    const dailyCell = appendCell(row, "最新估值变动", formatMoney(totals.daily));
     setSignedClass(dailyCell, totals.daily);
     if (totals.estimatedDailyCount) dailyCell.title = `${totals.estimatedDailyCount}笔场外基金使用场内行情估算`;
     else if (totals.carriedDailyCount) dailyCell.title = `${totals.carriedDailyCount}笔基金沿用最近公布净值日涨跌`;
@@ -2347,10 +2593,15 @@
     const transactions = [...(vault?.transactions || [])]
       .filter((transaction) => transaction?.id && transaction?.holdingId)
       .sort((left, right) => `${right.date || ""}|${right.createdAt || ""}`.localeCompare(`${left.date || ""}|${left.createdAt || ""}`));
-    $("transaction-count").textContent = `${transactions.length}笔记录`;
-    $("transactions-empty").hidden = transactions.length > 0;
-    $("transactions-table-wrap").hidden = transactions.length === 0;
-    $("transactions-limit-note").hidden = transactions.length <= 30;
+    const ledgerEvents = [...(vault?.ledgerEvents || [])].filter((event) => event?.id && event?.holdingId);
+    const entries = [
+      ...transactions.map((item) => ({ ...item, entryKind: "trade" })),
+      ...ledgerEvents.map((item) => ({ ...item, entryKind: "ledger" }))
+    ].sort((left, right) => `${right.date || ""}|${right.createdAt || ""}`.localeCompare(`${left.date || ""}|${left.createdAt || ""}`));
+    $("transaction-count").textContent = `${entries.length}笔记录`;
+    $("transactions-empty").hidden = entries.length > 0;
+    $("transactions-table-wrap").hidden = entries.length === 0;
+    $("transactions-limit-note").hidden = entries.length <= 30;
     const body = $("transactions-body");
     body.replaceChildren();
     const latestByHolding = new Map();
@@ -2358,7 +2609,7 @@
       if (!latestByHolding.has(transaction.holdingId)) latestByHolding.set(transaction.holdingId, transaction.id);
     });
 
-    transactions.slice(0, 30).forEach((transaction) => {
+    entries.slice(0, 30).forEach((transaction) => {
       const holding = vault.holdings.find((item) => item.id === transaction.holdingId);
       const row = document.createElement("tr");
       appendCell(row, "时间", transactionTimestamp(transaction));
@@ -2372,6 +2623,22 @@
       meta.textContent = [holding?.account || transaction.account, holding?.code || transaction.assetCode, transaction.currency].filter(Boolean).join(" · ");
       identity.append(name, meta);
       appendCell(row, "资产", identity);
+
+      if (transaction.entryKind === "ledger") {
+        const labels = { external: "资金转入/出", correction: "录入更正", income: "收益/分红" };
+        const type = document.createElement("span");
+        type.className = "transaction-type ledger";
+        type.textContent = labels[transaction.type] || "资产调整";
+        appendCell(row, "方向", type);
+        appendCell(row, "成交数量", "--");
+        appendCell(row, "成交价", "--");
+        const amount = appendCell(row, "成交额", `${numeric(transaction.amountCny) > 0 ? "+" : ""}${formatMoney(transaction.amountCny)}`);
+        setSignedClass(amount, transaction.type === "income" ? numeric(transaction.amountCny) : 0);
+        appendCell(row, "成交后持仓", transaction.note || "--");
+        appendCell(row, "操作", "");
+        body.appendChild(row);
+        return;
+      }
 
       const type = document.createElement("span");
       type.className = `transaction-type ${transaction.type}`;
@@ -2446,10 +2713,31 @@
         date: snapshot.date,
         totalAssets: numeric(snapshot.totalAssets),
         change: previous
-          ? numeric(snapshot.totalAssets) - numeric(previous.totalAssets) - transactionCapitalFlowBetween(previous.date, snapshot.date)
+          ? numeric(snapshot.totalAssets) - numeric(previous.totalAssets)
+            - externalCapitalFlowBetween(previous.date, snapshot.date)
+            - valuationAdjustmentBetween(previous.date, snapshot.date)
           : null
       };
     }).slice(-limits[period]);
+  }
+
+  function datedExternalFlows(startExclusive, endInclusive) {
+    const transactionFlows = (vault?.transactions || []).map((item) => ({ date: item.date, amount: numeric(item.capitalFlowCny) }));
+    const ledgerFlows = (vault?.ledgerEvents || []).map((item) => ({ date: item.date, amount: numeric(item.capitalFlowCny) }));
+    return [...transactionFlows, ...ledgerFlows].filter((item) => (
+      item.date && item.date > startExclusive && item.date <= endInclusive && Math.abs(item.amount) > 1e-8
+    ));
+  }
+
+  function modifiedDietzDenominator(baseValue, startDate, endDate) {
+    const start = new Date(`${startDate}T00:00:00+08:00`).getTime();
+    const end = new Date(`${endDate}T00:00:00+08:00`).getTime();
+    const duration = Math.max(end - start, 86400000);
+    return datedExternalFlows(startDate, endDate).reduce((denominator, flow) => {
+      const time = new Date(`${flow.date}T12:00:00+08:00`).getTime();
+      const weight = Math.max(0, Math.min(1, (end - time) / duration));
+      return denominator + flow.amount * weight;
+    }, baseValue);
   }
 
   function changeFromBaseline(snapshots, startDate, fallbackPrevious = false) {
@@ -2459,9 +2747,10 @@
     if (!baseline && fallbackPrevious && snapshots.length > 1) baseline = snapshots.at(-2);
     if (!baseline) return null;
     const baseValue = numeric(baseline.totalAssets);
-    const capitalFlowCny = transactionCapitalFlowBetween(baseline.date, latest.date);
-    const change = numeric(latest.totalAssets) - baseValue - capitalFlowCny;
-    const investedBase = baseValue + Math.max(0, capitalFlowCny);
+    const capitalFlowCny = externalCapitalFlowBetween(baseline.date, latest.date);
+    const valuationAdjustmentCny = valuationAdjustmentBetween(baseline.date, latest.date);
+    const change = numeric(latest.totalAssets) - baseValue - capitalFlowCny - valuationAdjustmentCny;
+    const investedBase = modifiedDietzDenominator(baseValue, baseline.date, latest.date);
     return { change, rate: investedBase ? change / investedBase : null };
   }
 
@@ -2487,7 +2776,7 @@
     if (points.length < 2) {
       const empty = document.createElement("div");
       empty.className = "history-empty";
-      empty.textContent = "产生两个以上日终记录后显示走势";
+      empty.textContent = "产生两个以上记录日后显示走势";
       chart.appendChild(empty);
       return;
     }
@@ -2569,7 +2858,7 @@
 
   function renderHistory() {
     const snapshots = sortedSnapshots();
-    $("snapshot-count").textContent = `${snapshots.length}个交易日`;
+    $("snapshot-count").textContent = `${snapshots.length}个记录日`;
     $("history-latest-total").textContent = snapshots.length ? formatMoney(snapshots.at(-1).totalAssets) : "--";
     const latestDate = snapshots.at(-1)?.date;
     setHistoryChange("day", latestDate ? changeFromBaseline(snapshots, latestDate, true) : null);
@@ -2839,8 +3128,7 @@
       };
       vault.transactions.push(transaction);
       markLocalUserChange();
-      await persistVault();
-      await recordSnapshot();
+      await recordSnapshot({ cloud: true });
       tradeDialog.close();
       renderAll();
       showToast(`${type === "sell" ? "卖出" : "买入"}已记录：${formatNumber(quantity, 4)} 份`);
@@ -2886,13 +3174,16 @@
       cash.updatedAt = new Date().toISOString();
     }
     vault.transactions = vault.transactions.filter((item) => item.id !== transaction.id);
+    vault.deletedTransactions.push({ id: transaction.id, deletedAt: new Date().toISOString() });
     if (cash && transaction.cashHoldingCreated && !(numeric(cash.fixedValue) > 1e-8)) {
       const stillReferenced = vault.transactions.some((item) => item.cashHoldingId === cash.id);
-      if (!stillReferenced) vault.holdings = vault.holdings.filter((item) => item.id !== cash.id);
+      if (!stillReferenced) {
+        vault.deletedHoldings.push({ id: cash.id, deletedAt: new Date().toISOString() });
+        vault.holdings = vault.holdings.filter((item) => item.id !== cash.id);
+      }
     }
     markLocalUserChange();
-    await persistVault();
-    await recordSnapshot();
+    await recordSnapshot({ cloud: true });
     renderAll();
     showToast("买卖记录已撤销");
   }
@@ -2954,12 +3245,12 @@
       $("holding-bucket").value = "bond_futures";
       $("holding-pricing-mode").value = "auto";
       $("holding-multiplier").value = "10000";
-      $("holding-include-nav").checked = false;
+      $("holding-include-nav").checked = true;
     } else if (type === "option") {
       $("holding-bucket").value = "a500";
-      $("holding-pricing-mode").value = "auto";
+      $("holding-pricing-mode").value = "manual";
       $("holding-multiplier").value = "100";
-      $("holding-include-nav").checked = false;
+      $("holding-include-nav").checked = true;
     } else if (type === "gold") {
       $("holding-bucket").value = "gold";
       $("holding-pricing-mode").value = "auto";
@@ -3007,6 +3298,9 @@
     $("holding-fund-input-mode").value = "amount";
     $("holding-currency").value = "CNY";
     $("holding-pricing-mode").value = "auto";
+    $("holding-asset-class").value = "auto";
+    $("holding-market-class").value = "auto";
+    $("holding-change-kind").value = "external";
     $("holding-intraday-estimate-enabled").checked = true;
     $("holding-intraday-proxy-code").value = "";
     $("holding-direction").value = "1";
@@ -3029,6 +3323,9 @@
       $("holding-code").value = item.code || "";
       $("holding-type").value = item.assetType || "other";
       $("holding-bucket").value = item.strategyBucket || "other";
+      $("holding-asset-class").value = item.assetClassOverride || "auto";
+      $("holding-market-class").value = item.marketOverride || "auto";
+      $("holding-change-kind").value = "correction";
       $("holding-fund-input-mode").value = item.fundInputMode || "shares";
       $("holding-currency").value = item.currency || "CNY";
       $("holding-pricing-mode").value = item.pricingMode || "manual";
@@ -3067,11 +3364,16 @@
     const intradayEstimateEnabled = assetType === "fund" && $("holding-intraday-estimate-enabled").checked;
     const intradayProxyCode = assetType === "fund" ? $("holding-intraday-proxy-code").value.trim().toUpperCase() : "";
     const amountFund = ["fund", "etf"].includes(assetType) && fundInputMode === "amount";
+    const pricingMode = $("holding-pricing-mode").value;
     const resetFundCalibration = amountFund && (
       !fundUsesEstimatedShares(existing)
       || Math.abs(fundSeedAmount - numeric(existing.fundSeedAmount)) >= 0.005
       || !existing.fundCalibratedAt
     );
+    const now = new Date().toISOString();
+    const enteredEntryPrice = amountFund ? numeric(existing.entryPrice) : numeric($("holding-entry-price").value);
+    const derivativeBasisChanged = ["futures", "option"].includes(assetType)
+      && (!existing.id || Math.abs(enteredEntryPrice - numeric(existing.entryPrice)) > 1e-10);
     const item = {
       ...existing,
       id: id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`),
@@ -3081,12 +3383,16 @@
       code,
       assetType,
       strategyBucket: $("holding-bucket").value,
+      assetClassOverride: $("holding-asset-class").value,
+      marketOverride: $("holding-market-class").value,
       currency: $("holding-currency").value,
-      pricingMode: $("holding-pricing-mode").value,
+      pricingMode,
       quoteId: keepExistingQuoteId ? (existing.quoteId || "") : "",
       quantity: amountFund ? numeric(existing.quantity) : numeric($("holding-quantity").value),
-      price: amountFund ? numeric(existing.price) : numeric($("holding-price").value),
-      entryPrice: amountFund ? numeric(existing.entryPrice) : numeric($("holding-entry-price").value),
+      price: amountFund || (existing.id && pricingMode === "auto")
+        ? numeric(existing.price)
+        : numeric($("holding-price").value),
+      entryPrice: enteredEntryPrice,
       direction: numeric($("holding-direction").value, 1),
       multiplier: numeric($("holding-multiplier").value, 1),
       delta: numeric($("holding-delta").value),
@@ -3102,7 +3408,9 @@
       valuationDate: $("holding-valuation-date").value,
       notes: $("holding-notes").value.trim(),
       includeNav: $("holding-include-nav").checked,
-      updatedAt: new Date().toISOString()
+      derivativeNavReviewed: assetType === "futures" || assetType === "option",
+      basisResetAt: derivativeBasisChanged ? now : (existing.basisResetAt || null),
+      updatedAt: now
     };
     if (resetFundCalibration) {
       item.quantity = 0;
@@ -3140,9 +3448,34 @@
     return "";
   }
 
+  function appendHoldingLedgerEvent(item, beforeValueCny, afterValueCny, kind, note = "") {
+    const amountCny = afterValueCny - beforeValueCny;
+    if (Math.abs(amountCny) < 0.005) return null;
+    const now = new Date().toISOString();
+    const event = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      holdingId: item.id,
+      type: kind,
+      date: chinaDate(),
+      createdAt: now,
+      updatedAt: now,
+      assetName: item.name,
+      assetCode: item.code,
+      account: item.account,
+      amountCny,
+      capitalFlowCny: kind === "external" ? amountCny : 0,
+      valuationAdjustmentCny: kind === "correction" ? amountCny : 0,
+      note
+    };
+    vault.ledgerEvents.push(event);
+    return event;
+  }
+
   async function saveHolding(event) {
     event.preventDefault();
     const item = formItem();
+    const existing = vault.holdings.find((holding) => holding.id === item.id) || null;
+    const beforeValueCny = existing ? calculateHolding(existing).valueCny : 0;
     const error = validateItem(item);
     if (error) {
       $("holding-form-error").textContent = error;
@@ -3167,11 +3500,19 @@
       }
     }
     if (!item.name) item.name = item.quoteName || `${item.assetType === "etf" ? "ETF" : "基金"} ${item.code}`;
+    const afterValueCny = calculateHolding(item).valueCny;
+    appendHoldingLedgerEvent(
+      item,
+      beforeValueCny,
+      afterValueCny,
+      $("holding-change-kind").value,
+      existing ? "编辑资产产生的价值变化" : "首次录入资产"
+    );
     const index = vault.holdings.findIndex((holding) => holding.id === item.id);
     if (index >= 0) vault.holdings[index] = item;
     else vault.holdings.push(item);
     markLocalUserChange();
-    await persistVault();
+    await recordSnapshot({ cloud: true });
     holdingDialog.close();
     renderAll();
     saveButton.disabled = false;
@@ -3185,9 +3526,14 @@
       showToast("该资产已有买卖记录或关联现金，不能直接删除");
       return;
     }
+    const holding = vault.holdings.find((item) => item.id === id);
+    if (!holding) return;
+    const beforeValueCny = calculateHolding(holding).valueCny;
+    appendHoldingLedgerEvent(holding, beforeValueCny, 0, "external", "删除资产，视为资金转出");
+    vault.deletedHoldings.push({ id, deletedAt: new Date().toISOString() });
     vault.holdings = vault.holdings.filter((item) => item.id !== id);
     markLocalUserChange();
-    await persistVault();
+    await recordSnapshot({ cloud: true });
     renderAll();
     showToast("资产已删除");
   }
@@ -3230,7 +3576,7 @@
       const imported = await decryptVault(raw);
       vault = imported;
       markLocalUserChange();
-      await persistVault();
+      await persistVault({ cloud: true });
       renderAll();
       showToast("加密备份已导入");
     } catch (error) {
@@ -3454,7 +3800,19 @@
     });
   });
 
-  $("record-today").addEventListener("click", () => recordSnapshot({ notify: true }));
+  document.querySelectorAll(".mobile-page-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      app.dataset.mobilePage = button.dataset.mobilePage;
+      document.querySelectorAll(".mobile-page-button").forEach((node) => {
+        node.classList.toggle("active", node === button);
+        if (node === button) node.setAttribute("aria-current", "page");
+        else node.removeAttribute("aria-current");
+      });
+      button.closest(".mobile-page-nav")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  });
+
+  $("record-today").addEventListener("click", () => recordSnapshot({ notify: true, cloud: true }));
   document.querySelectorAll(".history-period-button").forEach((button) => {
     button.addEventListener("click", () => {
       historyPeriod = button.dataset.period;
