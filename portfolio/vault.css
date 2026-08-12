@@ -1546,6 +1546,7 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
 .history-chart,
 .history-delta-chart {
   min-height: 230px;
+  cursor: crosshair;
 }
 
 .history-chart {
@@ -1638,7 +1639,7 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   min-width: 4px;
   display: grid;
   grid-template-rows: minmax(0, 1fr) 20px;
-  cursor: pointer;
+  cursor: crosshair;
   outline: none;
   touch-action: manipulation;
 }

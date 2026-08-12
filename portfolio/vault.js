@@ -3078,6 +3078,10 @@
       const svgX = (event.clientX - bounds.left) / Math.max(bounds.width, 1) * width;
       return Math.round((svgX - padding.left) / (width - padding.left - padding.right) * (points.length - 1));
     };
+    interaction.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "touch") return;
+      showPoint(Number.isFinite(event.clientX) ? indexFromEvent(event) : points.length - 1);
+    });
     interaction.addEventListener("pointermove", (event) => {
       if (event.pointerType === "touch") return;
       showPoint(indexFromEvent(event));
@@ -3162,14 +3166,6 @@
       const labelEvery = Math.max(1, Math.ceil(changes.length / 6));
       label.textContent = index % labelEvery === 0 || index === changes.length - 1 ? point.label : "";
       column.append(track, label);
-      column.addEventListener("pointerenter", () => {
-        hoveredKey = point.key;
-        showPoint(point, index);
-      });
-      column.addEventListener("pointerleave", () => {
-        hoveredKey = "";
-        restorePinned();
-      });
       column.addEventListener("focus", () => showPoint(point, index));
       column.addEventListener("blur", restorePinned);
       column.addEventListener("click", (event) => {
@@ -3191,6 +3187,28 @@
       chart.appendChild(column);
     });
     chart.appendChild(tooltip);
+    const indexFromEvent = (event) => {
+      const bounds = chart.getBoundingClientRect();
+      const ratio = (event.clientX - bounds.left) / Math.max(bounds.width, 1);
+      return Math.max(0, Math.min(changes.length - 1, Math.floor(ratio * changes.length)));
+    };
+    chart.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "touch") return;
+      const index = indexFromEvent(event);
+      hoveredKey = changes[index].key;
+      showPoint(changes[index], index);
+    });
+    chart.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") return;
+      const index = indexFromEvent(event);
+      if (hoveredKey === changes[index].key) return;
+      hoveredKey = changes[index].key;
+      showPoint(changes[index], index);
+    });
+    chart.addEventListener("pointerleave", () => {
+      hoveredKey = "";
+      restorePinned();
+    });
     chart.addEventListener("click", () => {
       pinnedKey = "";
       if (!hoveredKey) hideTooltip();
