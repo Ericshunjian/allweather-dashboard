@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260813-ledger8">
+  <link rel="stylesheet" href="vault.css?v=20260819-ledger9">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -270,6 +270,21 @@
           <div id="history-delta-chart" class="history-delta-chart" aria-label="期间资产变动历史"></div>
         </article>
       </div>
+      <article class="history-panel return-comparison-panel">
+        <div class="history-panel-heading return-comparison-heading">
+          <div>
+            <span>收益率走势对比</span>
+            <small>个人组合 vs 严格风险平价 · 8%目标波动率</small>
+          </div>
+          <small id="return-comparison-status">读取基准中</small>
+        </div>
+        <div class="return-comparison-summary" aria-label="最新累计收益率对比">
+          <span><em><i class="return-legend-dot personal"></i>个人组合</em><strong id="personal-cumulative-return">--</strong></span>
+          <span><em><i class="return-legend-dot benchmark"></i>严格风险平价</em><strong id="benchmark-cumulative-return">--</strong></span>
+          <span><em>超额</em><strong id="comparison-excess-return">--</strong></span>
+        </div>
+        <div id="return-comparison-chart" class="return-comparison-chart" aria-label="个人组合与严格风险平价累计收益率走势"></div>
+      </article>
     </section>
   </div>
 
@@ -550,7 +565,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="ledger-core.js?v=20260813-ledger8"></script>
-  <script src="vault.js?v=20260813-ledger8"></script>
+  <script src="ledger-core.js?v=20260819-ledger9"></script>
+  <script src="vault.js?v=20260819-ledger9"></script>
 </body>
 </html>

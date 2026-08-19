@@ -145,6 +145,40 @@
     };
   }
 
+  function chainReturn(previousCumulative, periodReturn) {
+    if (previousCumulative === null || periodReturn === null) return null;
+    const previous = Number(previousCumulative);
+    const period = Number(periodReturn);
+    if (!Number.isFinite(previous) || !Number.isFinite(period)) return null;
+    return (1 + previous) * (1 + period) - 1;
+  }
+
+  function cumulativeComparison({ baseDate, periods = [], benchmarkDates = [], benchmarkReturns = [] }) {
+    if (!baseDate || benchmarkDates.length !== benchmarkReturns.length) return [];
+    let personalReturn = 0;
+    let benchmarkReturn = 0;
+    let benchmarkIndex = benchmarkDates.findIndex((date) => date > baseDate);
+    if (benchmarkIndex < 0) benchmarkIndex = benchmarkDates.length;
+    const points = [{ date: baseDate, personalReturn, benchmarkReturn, excessReturn: 0, estimated: false }];
+    for (const period of periods) {
+      if (!period?.date || !Number.isFinite(Number(period.rate))) break;
+      personalReturn = chainReturn(personalReturn, Number(period.rate));
+      while (benchmarkIndex < benchmarkDates.length && benchmarkDates[benchmarkIndex] <= period.date) {
+        benchmarkReturn = chainReturn(benchmarkReturn, Number(benchmarkReturns[benchmarkIndex]));
+        benchmarkIndex += 1;
+      }
+      if (!Number.isFinite(personalReturn) || !Number.isFinite(benchmarkReturn)) break;
+      points.push({
+        date: period.date,
+        personalReturn,
+        benchmarkReturn,
+        excessReturn: personalReturn - benchmarkReturn,
+        estimated: Boolean(period.estimated)
+      });
+    }
+    return points;
+  }
+
   function futuresValuation({ quantity, price, entry, previousClose, multiplier, direction, resetToday, quotePending, includeNav }) {
     const side = Number(direction) < 0 ? -1 : 1;
     const reference = resetToday ? Number(entry) : Number(previousClose);
@@ -169,6 +203,8 @@
 
   return Object.freeze({
     businessDaysElapsed,
+    chainReturn,
+    cumulativeComparison,
     entryFlowDate,
     estimatedNativeValue,
     fundReferenceEligible,

@@ -103,6 +103,10 @@
   let insightView = "platform";
   let quoteRefreshTimer = null;
   let moneyValuesVisible = false;
+  let riskParityBenchmark = null;
+  let riskParityBenchmarkPromise = null;
+  let riskParityBenchmarkState = "idle";
+  let riskParityBenchmarkError = "";
   const expandedHoldingGroups = new Set();
   const expandedDailyContributionGroups = new Set();
 
@@ -3215,6 +3219,252 @@
     });
   }
 
+  function riskParityStartYear(snapshots) {
+    const earliestYear = Number(String(snapshots[0]?.date || "").slice(0, 4));
+    const currentYear = Number(chinaDate().slice(0, 4));
+    if (!Number.isFinite(earliestYear)) return currentYear;
+    return Math.max(2017, Math.min(currentYear, earliestYear));
+  }
+
+  function ensureRiskParityBenchmark(snapshots) {
+    if (snapshots.length < 2) return;
+    const startYear = riskParityStartYear(snapshots);
+    if ((riskParityBenchmarkState === "ready" && riskParityBenchmark?.startYear === startYear)
+      || (riskParityBenchmarkPromise && riskParityBenchmark?.requestedYear === startYear)) return;
+    riskParityBenchmarkState = "loading";
+    riskParityBenchmarkError = "";
+    riskParityBenchmark = { requestedYear: startYear, startYear, dates: [], returns: [], latestDate: "", target: 0.08 };
+    renderReturnComparison(snapshots);
+    riskParityBenchmarkPromise = fetch(`../data/strict-risk-parity/${startYear}/08.json?v=${Date.now()}`, { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((payload) => {
+        const dates = Array.isArray(payload?.simulation?.dates) ? payload.simulation.dates : [];
+        const returns = Array.isArray(payload?.simulation?.portfolio_returns) ? payload.simulation.portfolio_returns : [];
+        if (Math.abs(numeric(payload?.volatility_target) - 0.08) > 1e-8) throw new Error("基准并非8%目标波动率");
+        if (dates.length < 2 || dates.length !== returns.length) throw new Error("基准数据不完整");
+        riskParityBenchmark = {
+          startYear,
+          requestedYear: startYear,
+          dates: dates.map(String),
+          returns: returns.map((value) => numeric(value)),
+          latestDate: String(payload.latest_date || dates.at(-1) || ""),
+          target: 0.08
+        };
+        riskParityBenchmarkState = "ready";
+      })
+      .catch((error) => {
+        riskParityBenchmarkState = "error";
+        riskParityBenchmarkError = error?.message || "基准暂不可用";
+      })
+      .finally(() => {
+        riskParityBenchmarkPromise = null;
+        if (vault) renderReturnComparison(sortedSnapshots());
+      });
+  }
+
+  function buildReturnComparisonPoints(snapshots) {
+    if (riskParityBenchmarkState !== "ready" || !riskParityBenchmark?.dates?.length) return [];
+    const firstBenchmarkDate = riskParityBenchmark.dates[0];
+    const latestBenchmarkDate = riskParityBenchmark.latestDate || riskParityBenchmark.dates.at(-1);
+    const commonSnapshots = snapshots.filter((snapshot) => snapshot.date >= firstBenchmarkDate && snapshot.date <= latestBenchmarkDate);
+    if (commonSnapshots.length < 2) return [];
+
+    const base = commonSnapshots[0];
+    const periods = [];
+    for (let index = 1; index < commonSnapshots.length; index += 1) {
+      const previous = commonSnapshots[index - 1];
+      const current = commonSnapshots[index];
+      const capitalFlowCny = externalCapitalFlowBetween(previous.date, current.date);
+      const valuationAdjustmentCny = valuationAdjustmentBetween(previous.date, current.date);
+      const investedBase = modifiedDietzDenominator(numeric(previous.totalAssets), previous.date, current.date);
+      const period = Core.historyPeriodMetrics({
+        currentTotal: numeric(current.totalAssets),
+        previousTotal: numeric(previous.totalAssets),
+        capitalFlow: capitalFlowCny,
+        adjustment: valuationAdjustmentCny,
+        investedBase
+      });
+      periods.push({ date: current.date, rate: period.rate, estimated: Boolean(current.estimated) });
+    }
+    const points = Core.cumulativeComparison({
+      baseDate: base.date,
+      periods,
+      benchmarkDates: riskParityBenchmark.dates,
+      benchmarkReturns: riskParityBenchmark.returns
+    });
+    if (points.length) points[0].estimated = Boolean(base.estimated);
+    return points;
+  }
+
+  function setComparisonValue(id, value, signedValue = value) {
+    const node = $(id);
+    node.textContent = Number.isFinite(value) ? formatPercent(value, 2) : "--";
+    node.classList.remove("positive", "negative");
+    if (Number.isFinite(signedValue)) setSignedClass(node, signedValue);
+  }
+
+  function renderReturnComparisonTooltip(tooltip, point, baseDate) {
+    tooltip.replaceChildren();
+    const heading = document.createElement("div");
+    heading.className = "history-tooltip-heading";
+    const date = document.createElement("strong");
+    date.textContent = point.date;
+    const status = document.createElement("span");
+    status.className = `history-tooltip-status${point.estimated ? " estimated" : ""}`;
+    status.textContent = point.estimated ? "个人含估" : "共同起点复合";
+    heading.append(date, status);
+    tooltip.appendChild(heading);
+    addHistoryTooltipRow(tooltip, "个人组合", formatPercent(point.personalReturn, 2), point.personalReturn);
+    addHistoryTooltipRow(tooltip, "严格风险平价", formatPercent(point.benchmarkReturn, 2), point.benchmarkReturn);
+    addHistoryTooltipRow(tooltip, "累计超额", formatPercent(point.excessReturn, 2), point.excessReturn);
+    const note = document.createElement("small");
+    note.className = "return-comparison-tooltip-note";
+    note.textContent = `均以 ${baseDate} 为0%；个人收益已扣除资金流与录入更正`;
+    tooltip.appendChild(note);
+    tooltip.hidden = false;
+  }
+
+  function renderReturnComparison(snapshots) {
+    const chart = $("return-comparison-chart");
+    chart.replaceChildren();
+    const points = buildReturnComparisonPoints(snapshots);
+    const latest = points.at(-1);
+    setComparisonValue("personal-cumulative-return", latest?.personalReturn);
+    setComparisonValue("benchmark-cumulative-return", latest?.benchmarkReturn);
+    setComparisonValue("comparison-excess-return", latest?.excessReturn);
+
+    if (riskParityBenchmarkState === "loading") {
+      $("return-comparison-status").textContent = "读取8%基准中";
+    } else if (riskParityBenchmarkState === "error") {
+      $("return-comparison-status").textContent = `基准读取失败 · ${riskParityBenchmarkError}`;
+    } else if (points.length) {
+      $("return-comparison-status").textContent = `共同起点 ${points[0].date} · 对比截至 ${latest.date}`;
+    } else {
+      $("return-comparison-status").textContent = snapshots.length < 2 ? "至少需要2个记录日" : "暂无共同有效区间";
+    }
+
+    if (points.length < 2) {
+      const empty = document.createElement("div");
+      empty.className = "history-empty";
+      empty.textContent = riskParityBenchmarkState === "loading"
+        ? "正在读取严格风险平价收益序列"
+        : (riskParityBenchmarkState === "error" ? "严格风险平价基准暂不可用" : "产生两个以上共同记录日后显示收益率对比");
+      chart.appendChild(empty);
+      return;
+    }
+
+    const width = 760;
+    const height = 270;
+    const padding = { left: 54, right: 16, top: 18, bottom: 30 };
+    const values = points.flatMap((point) => [point.personalReturn, point.benchmarkReturn, 0]);
+    const rawMin = Math.min(...values);
+    const rawMax = Math.max(...values);
+    const margin = Math.max((rawMax - rawMin) * 0.12, 0.005);
+    const minimum = rawMin - margin;
+    const maximum = rawMax + margin;
+    const range = Math.max(maximum - minimum, 0.01);
+    const x = (index) => padding.left + index / (points.length - 1) * (width - padding.left - padding.right);
+    const y = (value) => padding.top + (maximum - value) / range * (height - padding.top - padding.bottom);
+    const pathFor = (field) => points.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(point[field]).toFixed(2)}`).join(" ");
+    const svg = createSvgNode("svg", { viewBox: `0 0 ${width} ${height}`, role: "group", "aria-label": "个人组合与严格风险平价累计收益率走势，悬停或点按查看" });
+
+    [0, 0.5, 1].forEach((ratio) => {
+      const value = maximum - ratio * range;
+      const gridY = y(value);
+      svg.appendChild(createSvgNode("line", { x1: padding.left, x2: width - padding.right, y1: gridY, y2: gridY, class: "history-grid-line" }));
+      svg.appendChild(createSvgNode("text", { x: padding.left - 8, y: gridY + 3, "text-anchor": "end", class: "history-axis-label" }, formatPercent(value, 1)));
+    });
+    if (minimum < 0 && maximum > 0) {
+      svg.appendChild(createSvgNode("line", { x1: padding.left, x2: width - padding.right, y1: y(0), y2: y(0), class: "return-zero-line" }));
+    }
+    svg.append(
+      createSvgNode("path", { d: pathFor("benchmarkReturn"), class: "return-comparison-path benchmark" }),
+      createSvgNode("path", { d: pathFor("personalReturn"), class: "return-comparison-path personal" }),
+      createSvgNode("text", { x: padding.left, y: height - 8, class: "history-axis-label" }, points[0].date.slice(5).replace("-", "/")),
+      createSvgNode("text", { x: width - padding.right, y: height - 8, "text-anchor": "end", class: "history-axis-label" }, latest.date.slice(5).replace("-", "/"))
+    );
+
+    const focusLine = createSvgNode("line", { y1: padding.top, y2: height - padding.bottom, class: "history-focus-line" });
+    const personalDot = createSvgNode("circle", { r: 5, class: "return-focus-dot personal" });
+    const benchmarkDot = createSvgNode("circle", { r: 5, class: "return-focus-dot benchmark" });
+    [focusLine, personalDot, benchmarkDot].forEach((node) => { node.style.display = "none"; });
+    svg.append(focusLine, personalDot, benchmarkDot);
+    const interaction = createSvgNode("rect", {
+      x: padding.left, y: padding.top,
+      width: width - padding.left - padding.right,
+      height: height - padding.top - padding.bottom,
+      class: "history-line-interaction",
+      tabindex: "0", role: "button",
+      "aria-label": "收益率对比图，使用左右方向键或点按查看信息"
+    });
+    svg.appendChild(interaction);
+    chart.appendChild(svg);
+    const tooltip = createHistoryTooltip(chart);
+    let pinnedIndex = null;
+    let keyboardIndex = points.length - 1;
+    const showPoint = (index) => {
+      const safeIndex = Math.max(0, Math.min(points.length - 1, index));
+      const point = points[safeIndex];
+      keyboardIndex = safeIndex;
+      const pointX = x(safeIndex);
+      const personalY = y(point.personalReturn);
+      const benchmarkY = y(point.benchmarkReturn);
+      focusLine.setAttribute("x1", pointX);
+      focusLine.setAttribute("x2", pointX);
+      personalDot.setAttribute("cx", pointX);
+      personalDot.setAttribute("cy", personalY);
+      benchmarkDot.setAttribute("cx", pointX);
+      benchmarkDot.setAttribute("cy", benchmarkY);
+      [focusLine, personalDot, benchmarkDot].forEach((node) => { node.style.display = ""; });
+      renderReturnComparisonTooltip(tooltip, point, points[0].date);
+      const topY = Math.min(personalY, benchmarkY);
+      positionHistoryTooltip(tooltip, pointX / width * 100, topY / height * 100, topY < height * 0.46);
+      interaction.setAttribute("aria-label", `${point.date}，个人组合 ${formatPercent(point.personalReturn, 2)}，严格风险平价 ${formatPercent(point.benchmarkReturn, 2)}，超额 ${formatPercent(point.excessReturn, 2)}`);
+    };
+    const hidePoint = () => {
+      tooltip.hidden = true;
+      [focusLine, personalDot, benchmarkDot].forEach((node) => { node.style.display = "none"; });
+    };
+    const restorePinned = () => pinnedIndex === null ? hidePoint() : showPoint(pinnedIndex);
+    const indexFromEvent = (event) => {
+      const bounds = svg.getBoundingClientRect();
+      const svgX = (event.clientX - bounds.left) / Math.max(bounds.width, 1) * width;
+      return Math.round((svgX - padding.left) / (width - padding.left - padding.right) * (points.length - 1));
+    };
+    interaction.addEventListener("pointerenter", (event) => {
+      if (event.pointerType !== "touch") showPoint(indexFromEvent(event));
+    });
+    interaction.addEventListener("pointermove", (event) => {
+      if (event.pointerType !== "touch") showPoint(indexFromEvent(event));
+    });
+    interaction.addEventListener("pointerleave", restorePinned);
+    interaction.addEventListener("click", (event) => {
+      const index = indexFromEvent(event);
+      pinnedIndex = pinnedIndex === index ? null : index;
+      restorePinned();
+    });
+    interaction.addEventListener("focus", () => showPoint(keyboardIndex));
+    interaction.addEventListener("blur", restorePinned);
+    interaction.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "Home", "End", "Enter", " ", "Escape"].includes(event.key)) event.preventDefault();
+      if (event.key === "ArrowLeft") showPoint(keyboardIndex - 1);
+      if (event.key === "ArrowRight") showPoint(keyboardIndex + 1);
+      if (event.key === "Home") showPoint(0);
+      if (event.key === "End") showPoint(points.length - 1);
+      if (event.key === "Enter" || event.key === " ") {
+        pinnedIndex = pinnedIndex === keyboardIndex ? null : keyboardIndex;
+        restorePinned();
+      }
+      if (event.key === "Escape") {
+        pinnedIndex = null;
+        hidePoint();
+      }
+    });
+  }
+
   function renderHistory() {
     const snapshots = sortedSnapshots();
     $("snapshot-count").textContent = `${snapshots.length}个记录日`;
@@ -3228,6 +3478,8 @@
     const points = aggregateSnapshots(snapshots, historyPeriod);
     renderAssetLine(points);
     renderDeltaBars(points);
+    renderReturnComparison(snapshots);
+    ensureRiskParityBenchmark(snapshots);
   }
 
   function renderAll() {

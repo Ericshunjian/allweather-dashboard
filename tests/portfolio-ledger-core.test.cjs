@@ -110,3 +110,28 @@ test("历史期间盈亏扣除转入和更正，并以期间资金基数计算�
   assert.equal(result.change, 1500);
   assert.equal(result.rate, 1500 / 105000);
 });
+
+test("个人组合和基准的累计收益均按期间收益复合", () => {
+  const afterGain = Core.chainReturn(0, 0.1);
+  const afterLoss = Core.chainReturn(afterGain, -0.05);
+  assert.ok(Math.abs(afterGain - 0.1) < 1e-12);
+  assert.ok(Math.abs(afterLoss - 0.045) < 1e-12);
+  assert.equal(Core.chainReturn(null, 0.1), null);
+});
+
+test("收益率对比以共同起点归零，并把缺少个人记录日的基准收益继续复合", () => {
+  const points = Core.cumulativeComparison({
+    baseDate: "2026-08-01",
+    periods: [
+      { date: "2026-08-02", rate: 0.1 },
+      { date: "2026-08-05", rate: -0.05, estimated: true }
+    ],
+    benchmarkDates: ["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-05"],
+    benchmarkReturns: [0, 0.02, 0.03, -0.01]
+  });
+  assert.equal(points.length, 3);
+  assert.ok(Math.abs(points[2].personalReturn - 0.045) < 1e-12);
+  assert.ok(Math.abs(points[2].benchmarkReturn - (1.02 * 1.03 * 0.99 - 1)) < 1e-12);
+  assert.equal(points[2].estimated, true);
+  assert.ok(Math.abs(points[2].excessReturn - (points[2].personalReturn - points[2].benchmarkReturn)) < 1e-12);
+});
