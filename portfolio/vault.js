@@ -3306,25 +3306,15 @@
     if (Number.isFinite(signedValue)) setSignedClass(node, signedValue);
   }
 
-  function renderReturnComparisonTooltip(tooltip, point, baseDate) {
-    tooltip.replaceChildren();
-    const heading = document.createElement("div");
-    heading.className = "history-tooltip-heading";
-    const date = document.createElement("strong");
-    date.textContent = point.date;
-    const status = document.createElement("span");
-    status.className = `history-tooltip-status${point.estimated ? " estimated" : ""}`;
-    status.textContent = point.estimated ? "个人含估" : "共同起点复合";
-    heading.append(date, status);
-    tooltip.appendChild(heading);
-    addHistoryTooltipRow(tooltip, "个人组合", formatPercent(point.personalReturn, 2), point.personalReturn);
-    addHistoryTooltipRow(tooltip, "严格风险平价", formatPercent(point.benchmarkReturn, 2), point.benchmarkReturn);
-    addHistoryTooltipRow(tooltip, "累计超额", formatPercent(point.excessReturn, 2), point.excessReturn);
-    const note = document.createElement("small");
-    note.className = "return-comparison-tooltip-note";
-    note.textContent = `均以 ${baseDate} 为0%；个人收益已扣除资金流与录入更正`;
-    tooltip.appendChild(note);
-    tooltip.hidden = false;
+  function setReturnComparisonReadout(point, pinned = false) {
+    $("return-comparison-active-date").textContent = point?.date || "--";
+    const states = [];
+    if (point?.estimated) states.push("含估");
+    if (pinned) states.push("已固定");
+    $("return-comparison-active-state").textContent = states.join(" · ");
+    setComparisonValue("personal-cumulative-return", point?.personalReturn);
+    setComparisonValue("benchmark-cumulative-return", point?.benchmarkReturn);
+    setComparisonValue("comparison-excess-return", point?.excessReturn);
   }
 
   function renderReturnComparison(snapshots) {
@@ -3332,9 +3322,7 @@
     chart.replaceChildren();
     const points = buildReturnComparisonPoints(snapshots);
     const latest = points.at(-1);
-    setComparisonValue("personal-cumulative-return", latest?.personalReturn);
-    setComparisonValue("benchmark-cumulative-return", latest?.benchmarkReturn);
-    setComparisonValue("comparison-excess-return", latest?.excessReturn);
+    setReturnComparisonReadout(latest);
 
     if (riskParityBenchmarkState === "loading") {
       $("return-comparison-status").textContent = "读取8%基准中";
@@ -3402,10 +3390,9 @@
     });
     svg.appendChild(interaction);
     chart.appendChild(svg);
-    const tooltip = createHistoryTooltip(chart);
     let pinnedIndex = null;
     let keyboardIndex = points.length - 1;
-    const showPoint = (index) => {
+    const showPoint = (index, pinned = false) => {
       const safeIndex = Math.max(0, Math.min(points.length - 1, index));
       const point = points[safeIndex];
       keyboardIndex = safeIndex;
@@ -3419,35 +3406,31 @@
       benchmarkDot.setAttribute("cx", pointX);
       benchmarkDot.setAttribute("cy", benchmarkY);
       [focusLine, personalDot, benchmarkDot].forEach((node) => { node.style.display = ""; });
-      renderReturnComparisonTooltip(tooltip, point, points[0].date);
-      const topY = Math.min(personalY, benchmarkY);
-      positionHistoryTooltip(tooltip, pointX / width * 100, topY / height * 100, topY < height * 0.46);
+      setReturnComparisonReadout(point, pinned);
       interaction.setAttribute("aria-label", `${point.date}，个人组合 ${formatPercent(point.personalReturn, 2)}，严格风险平价 ${formatPercent(point.benchmarkReturn, 2)}，超额 ${formatPercent(point.excessReturn, 2)}`);
     };
-    const hidePoint = () => {
-      tooltip.hidden = true;
-      [focusLine, personalDot, benchmarkDot].forEach((node) => { node.style.display = "none"; });
-    };
-    const restorePinned = () => pinnedIndex === null ? hidePoint() : showPoint(pinnedIndex);
+    const restoreSelection = () => pinnedIndex === null
+      ? showPoint(points.length - 1)
+      : showPoint(pinnedIndex, true);
     const indexFromEvent = (event) => {
       const bounds = svg.getBoundingClientRect();
       const svgX = (event.clientX - bounds.left) / Math.max(bounds.width, 1) * width;
       return Math.round((svgX - padding.left) / (width - padding.left - padding.right) * (points.length - 1));
     };
     interaction.addEventListener("pointerenter", (event) => {
-      if (event.pointerType !== "touch") showPoint(indexFromEvent(event));
+      if (event.pointerType !== "touch" && pinnedIndex === null) showPoint(indexFromEvent(event));
     });
     interaction.addEventListener("pointermove", (event) => {
-      if (event.pointerType !== "touch") showPoint(indexFromEvent(event));
+      if (event.pointerType !== "touch" && pinnedIndex === null) showPoint(indexFromEvent(event));
     });
-    interaction.addEventListener("pointerleave", restorePinned);
+    interaction.addEventListener("pointerleave", restoreSelection);
     interaction.addEventListener("click", (event) => {
       const index = indexFromEvent(event);
       pinnedIndex = pinnedIndex === index ? null : index;
-      restorePinned();
+      restoreSelection();
     });
     interaction.addEventListener("focus", () => showPoint(keyboardIndex));
-    interaction.addEventListener("blur", restorePinned);
+    interaction.addEventListener("blur", restoreSelection);
     interaction.addEventListener("keydown", (event) => {
       if (["ArrowLeft", "ArrowRight", "Home", "End", "Enter", " ", "Escape"].includes(event.key)) event.preventDefault();
       if (event.key === "ArrowLeft") showPoint(keyboardIndex - 1);
@@ -3456,13 +3439,14 @@
       if (event.key === "End") showPoint(points.length - 1);
       if (event.key === "Enter" || event.key === " ") {
         pinnedIndex = pinnedIndex === keyboardIndex ? null : keyboardIndex;
-        restorePinned();
+        restoreSelection();
       }
       if (event.key === "Escape") {
         pinnedIndex = null;
-        hidePoint();
+        restoreSelection();
       }
     });
+    restoreSelection();
   }
 
   function renderHistory() {
