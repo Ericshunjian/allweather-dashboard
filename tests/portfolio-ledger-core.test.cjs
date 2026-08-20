@@ -34,6 +34,12 @@ test("场外基金参考涨跌会进入当前估值，但正式净值不重复�
   assert.equal(Core.estimatedNativeValue(100000, 1200, false, false), 100000);
 });
 
+test("跨零点沿用涨跌只调整QDII估值，国内基金和黄金不重复计价", () => {
+  assert.equal(Core.carriedFundMoveAffectsValue(true, "us-equity"), true);
+  assert.equal(Core.carriedFundMoveAffectsValue(true, "cn-equity"), false);
+  assert.equal(Core.carriedFundMoveAffectsValue(true, "gold"), false);
+});
+
 test("国债期货成本等于收盘价时累计和当日盈亏都为零", () => {
   const result = Core.futuresValuation({
     quantity: 2,
@@ -134,4 +140,34 @@ test("收益率对比以共同起点归零，并把缺少个人记录日的基�
   assert.ok(Math.abs(points[2].benchmarkReturn - (1.02 * 1.03 * 0.99 - 1)) < 1e-12);
   assert.equal(points[2].estimated, true);
   assert.ok(Math.abs(points[2].excessReturn - (points[2].personalReturn - points[2].benchmarkReturn)) < 1e-12);
+});
+
+test("个人表现指标按资金流调整后的期间收益复合并计算回撤", () => {
+  const stats = Core.performanceStats({
+    baseDate: "2026-06-01",
+    periods: [
+      { startDate: "2026-06-01", date: "2026-06-10", rate: 0.1 },
+      { startDate: "2026-06-10", date: "2026-07-01", rate: -0.05 },
+      { startDate: "2026-07-01", date: "2026-07-15", rate: 0.02 },
+      { startDate: "2026-07-15", date: "2026-07-25", rate: 0.01 },
+      { startDate: "2026-07-25", date: "2026-08-10", rate: -0.01 },
+      { startDate: "2026-08-10", date: "2026-08-20", rate: 0.005 }
+    ]
+  });
+  assert.ok(Math.abs(stats.totalReturn - (1.1 * 0.95 * 1.02 * 1.01 * 0.99 * 1.005 - 1)) < 1e-12);
+  assert.ok(Math.abs(stats.maxDrawdown - -0.05) < 1e-12);
+  assert.ok(stats.currentDrawdown < 0);
+  assert.equal(stats.positiveRatio, 4 / 6);
+  assert.ok(Number.isFinite(stats.recentReturn));
+  assert.ok(Number.isFinite(stats.annualizedVolatility));
+});
+
+test("表现记录不足时不伪造30日收益和年化波动率", () => {
+  const stats = Core.performanceStats({
+    baseDate: "2026-08-18",
+    periods: [{ startDate: "2026-08-18", date: "2026-08-20", rate: 0.01 }]
+  });
+  assert.equal(stats.recentReturn, null);
+  assert.equal(stats.annualizedVolatility, null);
+  assert.equal(stats.maxDrawdown, 0);
 });

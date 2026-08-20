@@ -132,6 +132,10 @@
     return Number(nativeValue || 0) + (estimated || carried ? Number(nativeDailyPnl || 0) : 0);
   }
 
+  function carriedFundMoveAffectsValue(carried, marketKey) {
+    return Boolean(carried) && marketKey === "us-equity";
+  }
+
   function entryFlowDate(entry) {
     return String(entry?.flowDate || entry?.date || "");
   }
@@ -151,6 +155,82 @@
     const period = Number(periodReturn);
     if (!Number.isFinite(previous) || !Number.isFinite(period)) return null;
     return (1 + previous) * (1 + period) - 1;
+  }
+
+  function calendarDaysBetween(startDate, endDate) {
+    const start = Date.parse(`${startDate}T00:00:00Z`);
+    const end = Date.parse(`${endDate}T00:00:00Z`);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return NaN;
+    return Math.round((end - start) / 86400000);
+  }
+
+  function performanceStats({ baseDate, periods = [], recentDays = 30 }) {
+    if (!baseDate) return null;
+    const orderedPeriods = periods
+      .map((period) => ({
+        date: String(period?.date || ""),
+        startDate: String(period?.startDate || ""),
+        rate: Number(period?.rate),
+        days: Number(period?.days)
+      }))
+      .filter((period) => period.date)
+      .sort((left, right) => left.date.localeCompare(right.date));
+    const validPeriods = [];
+    for (const period of orderedPeriods) {
+      if (!Number.isFinite(period.rate) || period.rate <= -1) break;
+      validPeriods.push(period);
+    }
+    if (!validPeriods.length) return null;
+
+    let growth = 1;
+    let peak = 1;
+    let maxDrawdown = 0;
+    const curve = [{ date: baseDate, growth }];
+    validPeriods.forEach((period) => {
+      growth *= 1 + period.rate;
+      peak = Math.max(peak, growth);
+      maxDrawdown = Math.min(maxDrawdown, growth / peak - 1);
+      curve.push({ date: period.date, growth });
+    });
+
+    const latest = curve.at(-1);
+    const latestPeak = curve.reduce((maximum, point) => Math.max(maximum, point.growth), 1);
+    const cutoffTime = Date.parse(`${latest.date}T00:00:00Z`) - Number(recentDays) * 86400000;
+    const recentBaseline = curve.filter((point) => Date.parse(`${point.date}T00:00:00Z`) <= cutoffTime).at(-1);
+    const recentReturn = recentBaseline ? latest.growth / recentBaseline.growth - 1 : null;
+
+    const volatilityPeriods = validPeriods.map((period) => {
+      const days = Number.isFinite(period.days) && period.days > 0
+        ? period.days
+        : calendarDaysBetween(period.startDate, period.date);
+      return { days, logReturn: Math.log1p(period.rate) };
+    }).filter((period) => Number.isFinite(period.days) && period.days > 0 && Number.isFinite(period.logReturn));
+    const totalDays = volatilityPeriods.reduce((sum, period) => sum + period.days, 0);
+    let annualizedVolatility = null;
+    if (volatilityPeriods.length >= 5 && totalDays >= 7) {
+      const dailyDrift = volatilityPeriods.reduce((sum, period) => sum + period.logReturn, 0) / totalDays;
+      const variance = volatilityPeriods.reduce((sum, period) => {
+        const residual = period.logReturn - dailyDrift * period.days;
+        return sum + residual * residual / period.days;
+      }, 0) / (volatilityPeriods.length - 1);
+      annualizedVolatility = Math.sqrt(Math.max(variance, 0) * 365);
+    }
+
+    return {
+      totalReturn: latest.growth - 1,
+      recentReturn,
+      annualizedVolatility,
+      maxDrawdown,
+      currentDrawdown: latest.growth / latestPeak - 1,
+      positiveRatio: validPeriods.length
+        ? validPeriods.filter((period) => period.rate > 0).length / validPeriods.length
+        : null,
+      baseDate,
+      latestDate: latest.date,
+      recordCount: curve.length,
+      periodCount: validPeriods.length,
+      calendarDays: calendarDaysBetween(baseDate, latest.date)
+    };
   }
 
   function cumulativeComparison({ baseDate, periods = [], benchmarkDates = [], benchmarkReturns = [] }) {
@@ -203,6 +283,7 @@
 
   return Object.freeze({
     businessDaysElapsed,
+    carriedFundMoveAffectsValue,
     chainReturn,
     cumulativeComparison,
     entryFlowDate,
@@ -210,6 +291,7 @@
     fundReferenceEligible,
     futuresValuation,
     historyPeriodMetrics,
+    performanceStats,
     inferStrategyBucket,
     inferEquityMarket,
     isTencentDomesticBroadProxy,

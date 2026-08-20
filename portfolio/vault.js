@@ -1059,8 +1059,9 @@
     }
     const previousFx = item.currency === "CNY" ? 1 : numeric(vault.fxRates?.previous?.[item.currency], fx);
     const openingNativeValue = openingNativeValueForFx(item, nativeValue, nativeDailyPnl, previousClose, multiplier, fx);
-    const valueEstimated = dailyPnlEstimated || dailyPnlCarried;
-    const estimatedNativeValue = Core.estimatedNativeValue(nativeValue, nativeDailyPnl, dailyPnlEstimated, dailyPnlCarried);
+    const carriedMoveAffectsValue = Core.carriedFundMoveAffectsValue(dailyPnlCarried, marketClassification(item).key);
+    const valueEstimated = dailyPnlEstimated || carriedMoveAffectsValue;
+    const estimatedNativeValue = Core.estimatedNativeValue(nativeValue, nativeDailyPnl, dailyPnlEstimated, carriedMoveAffectsValue);
     if (valueEstimated && !derivative && item.strategyBucket !== "cash") nativeExposure = estimatedNativeValue;
     const dailyPnlCny = validFx
       ? nativeDailyPnl * fx + openingNativeValue * (fx - (previousFx > 0 ? previousFx : fx))
@@ -3265,18 +3266,11 @@
       });
   }
 
-  function buildReturnComparisonPoints(snapshots) {
-    if (riskParityBenchmarkState !== "ready" || !riskParityBenchmark?.dates?.length) return [];
-    const firstBenchmarkDate = riskParityBenchmark.dates[0];
-    const latestBenchmarkDate = riskParityBenchmark.latestDate || riskParityBenchmark.dates.at(-1);
-    const commonSnapshots = snapshots.filter((snapshot) => snapshot.date >= firstBenchmarkDate && snapshot.date <= latestBenchmarkDate);
-    if (commonSnapshots.length < 2) return [];
-
-    const base = commonSnapshots[0];
+  function buildPersonalPerformancePeriods(snapshots) {
     const periods = [];
-    for (let index = 1; index < commonSnapshots.length; index += 1) {
-      const previous = commonSnapshots[index - 1];
-      const current = commonSnapshots[index];
+    for (let index = 1; index < snapshots.length; index += 1) {
+      const previous = snapshots[index - 1];
+      const current = snapshots[index];
       const capitalFlowCny = externalCapitalFlowBetween(previous.date, current.date);
       const valuationAdjustmentCny = valuationAdjustmentBetween(previous.date, current.date);
       const investedBase = modifiedDietzDenominator(numeric(previous.totalAssets), previous.date, current.date);
@@ -3287,8 +3281,20 @@
         adjustment: valuationAdjustmentCny,
         investedBase
       });
-      periods.push({ date: current.date, rate: period.rate, estimated: Boolean(current.estimated) });
+      periods.push({ startDate: previous.date, date: current.date, rate: period.rate, estimated: Boolean(current.estimated) });
     }
+    return periods;
+  }
+
+  function buildReturnComparisonPoints(snapshots) {
+    if (riskParityBenchmarkState !== "ready" || !riskParityBenchmark?.dates?.length) return [];
+    const firstBenchmarkDate = riskParityBenchmark.dates[0];
+    const latestBenchmarkDate = riskParityBenchmark.latestDate || riskParityBenchmark.dates.at(-1);
+    const commonSnapshots = snapshots.filter((snapshot) => snapshot.date >= firstBenchmarkDate && snapshot.date <= latestBenchmarkDate);
+    if (commonSnapshots.length < 2) return [];
+
+    const base = commonSnapshots[0];
+    const periods = buildPersonalPerformancePeriods(commonSnapshots);
     const points = Core.cumulativeComparison({
       baseDate: base.date,
       periods,
@@ -3484,6 +3490,32 @@
     });
   }
 
+  function setPerformanceValue(id, value, signed = false) {
+    const node = $(id);
+    node.textContent = Number.isFinite(value) ? formatPercent(value, 2) : "--";
+    node.classList.remove("positive", "negative");
+    if (signed && Number.isFinite(value)) setSignedClass(node, value);
+  }
+
+  function renderPerformanceStats(snapshots) {
+    const stats = snapshots.length >= 2
+      ? Core.performanceStats({
+        baseDate: snapshots[0].date,
+        periods: buildPersonalPerformancePeriods(snapshots),
+        recentDays: 30
+      })
+      : null;
+    setPerformanceValue("performance-total-return", stats?.totalReturn, true);
+    setPerformanceValue("performance-30d-return", stats?.recentReturn, true);
+    setPerformanceValue("performance-volatility", stats?.annualizedVolatility);
+    setPerformanceValue("performance-max-drawdown", stats?.maxDrawdown, true);
+    setPerformanceValue("performance-current-drawdown", stats?.currentDrawdown, true);
+    setPerformanceValue("performance-positive-ratio", stats?.positiveRatio);
+    $("performance-stats-range").textContent = stats
+      ? `${stats.baseDate} 至 ${stats.latestDate} · ${stats.recordCount}个记录日`
+      : "至少需要2个记录日";
+  }
+
   function renderHistory() {
     const snapshots = sortedSnapshots();
     $("snapshot-count").textContent = `${snapshots.length}个记录日`;
@@ -3498,6 +3530,7 @@
     renderAssetLine(points);
     renderDeltaBars(points);
     renderReturnComparison(snapshots);
+    renderPerformanceStats(snapshots);
     ensureRiskParityBenchmark(snapshots);
   }
 

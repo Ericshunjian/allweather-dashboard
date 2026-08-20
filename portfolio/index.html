@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260819-ledger11">
+  <link rel="stylesheet" href="vault.css?v=20260820-ledger12">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -284,6 +284,24 @@
           <span><em>累计超额</em><strong id="comparison-excess-return">--</strong></span>
         </div>
         <div id="return-comparison-chart" class="return-comparison-chart" aria-label="个人组合与严格风险平价累计收益率走势"></div>
+      </article>
+      <article class="performance-stats-panel" aria-labelledby="performance-stats-title">
+        <div class="performance-stats-heading">
+          <div>
+            <p class="eyebrow">PERFORMANCE</p>
+            <h3 id="performance-stats-title">个人表现指标</h3>
+          </div>
+          <small id="performance-stats-range">至少需要2个记录日</small>
+        </div>
+        <div class="performance-stats-grid">
+          <div class="performance-stat"><span>累计收益率</span><strong id="performance-total-return">--</strong><small>首个记录日至今</small></div>
+          <div class="performance-stat"><span>近30日收益率</span><strong id="performance-30d-return">--</strong><small>不足30日时暂不显示</small></div>
+          <div class="performance-stat"><span>年化波动率</span><strong id="performance-volatility">--</strong><small>至少5段有效记录</small></div>
+          <div class="performance-stat"><span>最大回撤</span><strong id="performance-max-drawdown">--</strong><small>历史峰值至低点</small></div>
+          <div class="performance-stat"><span>当前回撤</span><strong id="performance-current-drawdown">--</strong><small>相对历史峰值</small></div>
+          <div class="performance-stat"><span>盈利记录占比</span><strong id="performance-positive-ratio">--</strong><small>期间收益为正的比例</small></div>
+        </div>
+        <p class="performance-stats-note">基于台账记录日，已扣除转入、转出与录入更正。记录越连续，波动率和回撤越可靠。</p>
       </article>
     </section>
   </div>
@@ -565,7 +583,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="ledger-core.js?v=20260819-ledger11"></script>
-  <script src="vault.js?v=20260819-ledger11"></script>
+  <script src="ledger-core.js?v=20260820-ledger12"></script>
+  <script src="vault.js?v=20260820-ledger12"></script>
 </body>
 </html>

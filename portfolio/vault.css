@@ -1896,6 +1896,91 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   stroke: #b77b17;
 }
 
+.performance-stats-panel {
+  margin-top: 14px;
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(36, 103, 156, 0.035), rgba(255, 255, 255, 0) 58%);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.performance-stats-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 13px;
+}
+
+.performance-stats-heading .eyebrow {
+  margin: 0 0 4px;
+}
+
+.performance-stats-heading h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.performance-stats-heading > small {
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+
+.performance-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.performance-stat {
+  min-width: 0;
+  padding: 14px 15px 13px;
+  background: rgba(255, 255, 255, 0.74);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.performance-stat:nth-child(3n) {
+  border-right: 0;
+}
+
+.performance-stat:nth-last-child(-n + 3) {
+  border-bottom: 0;
+}
+
+.performance-stat span,
+.performance-stat small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.performance-stat strong {
+  display: block;
+  margin: 7px 0 4px;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.performance-stat small {
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.performance-stats-note {
+  margin: 11px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
 dialog {
   color: var(--ink);
   background: var(--paper);
@@ -2694,6 +2779,38 @@ dialog::backdrop {
 
   .history-change-grid small {
     text-align: right;
+  }
+
+  .performance-stats-panel {
+    padding: 14px 12px;
+  }
+
+  .performance-stats-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .performance-stats-heading > small {
+    text-align: left;
+  }
+
+  .performance-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .performance-stat,
+  .performance-stat:nth-child(3n) {
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .performance-stat:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .performance-stat:nth-last-child(-n + 2) {
+    border-bottom: 0;
   }
 
   .return-comparison-heading {
