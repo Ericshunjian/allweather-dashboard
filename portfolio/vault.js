@@ -4,6 +4,7 @@
   const AUTH = window.PORTFOLIO_VAULT_AUTH;
   const SYNC_CONFIG = window.PORTFOLIO_SYNC_CONFIG || {};
   const Core = window.PortfolioLedgerCore;
+  const MAX_SNAPSHOT_RECORDS = 5000;
   const STORAGE_KEY = "allweather.portfolio.vault.v1";
   const LOCAL_USER_DATA_KEY = "allweather.portfolio.vault.has-user-data.v1";
   const SYNC_SESSION_KEY = "allweather.portfolio.sync.session.v1";
@@ -569,7 +570,7 @@
       const currentTime = current?.recordedAt || `${current?.date || ""}T00:00:00+08:00`;
       if (!current || timestampValue(sourceTime) >= timestampValue(currentTime)) merged.set(source.date, cloneData(source));
     });
-    return [...merged.values()].sort((left, right) => left.date.localeCompare(right.date)).slice(-750);
+    return [...merged.values()].sort((left, right) => left.date.localeCompare(right.date)).slice(-MAX_SNAPSHOT_RECORDS);
   }
 
   function mergeVaults(localVault, remoteVault) {
@@ -1667,7 +1668,7 @@
     vault.snapshots = vault.snapshots
       .filter((item) => item && item.date && Number.isFinite(Number(item.totalAssets)))
       .sort((left, right) => left.date.localeCompare(right.date))
-      .slice(-750);
+      .slice(-MAX_SNAPSHOT_RECORDS);
     await persistVault({ cloud: options.cloud === true });
     renderHistory();
     if (options.notify) showToast(`已记录 ${date} 总资产`);
