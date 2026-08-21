@@ -3374,10 +3374,7 @@
     const maximum = rawMax + margin;
     const range = Math.max(maximum - minimum, 0.01);
     const plotWidth = width - padding.left - padding.right;
-    const timelineStart = points[0].date;
-    const timelineEnd = latest.date;
-    const pointXs = points.map((point) => padding.left + Core.timelineRatio(point.date, timelineStart, timelineEnd) * plotWidth);
-    const x = (index) => pointXs[index];
+    const x = (index) => padding.left + index / (points.length - 1) * plotWidth;
     const y = (value) => padding.top + (maximum - value) / range * (height - padding.top - padding.bottom);
     const pathFor = (field) => points.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(point[field]).toFixed(2)}`).join(" ");
     const svg = createSvgNode("svg", { viewBox: `0 0 ${width} ${height}`, role: "group", "aria-label": "个人组合与严格风险平价累计收益率走势，悬停或点按查看" });
@@ -3416,16 +3413,11 @@
     const tooltip = createHistoryTooltip(chart);
     let pinnedIndex = null;
     let keyboardIndex = points.length - 1;
-    let activeIndex = null;
-    let hoverFrame = null;
-    let pendingHoverIndex = null;
     let touchTracking = false;
     let ignoreClicksBefore = 0;
-    const showPoint = (index, force = false) => {
+    const showPoint = (index) => {
       const safeIndex = Math.max(0, Math.min(points.length - 1, index));
-      if (!force && activeIndex === safeIndex && !tooltip.hidden) return;
       const point = points[safeIndex];
-      activeIndex = safeIndex;
       keyboardIndex = safeIndex;
       const pointX = x(safeIndex);
       const personalY = y(point.personalReturn);
@@ -3443,27 +3435,17 @@
       interaction.setAttribute("aria-label", `${point.date}，个人组合 ${formatPercent(point.personalReturn, 2)}，严格风险平价 ${formatPercent(point.benchmarkReturn, 2)}，超额 ${formatPercent(point.excessReturn, 2)}`);
     };
     const hidePoint = () => {
-      activeIndex = null;
       tooltip.hidden = true;
       [focusLine, personalDot, benchmarkDot].forEach((node) => { node.style.display = "none"; });
     };
-    const restorePinned = () => pinnedIndex === null ? hidePoint() : showPoint(pinnedIndex, true);
-    const queueHoverPoint = (index) => {
-      pendingHoverIndex = index;
-      if (hoverFrame !== null) return;
-      hoverFrame = requestAnimationFrame(() => {
-        hoverFrame = null;
-        if (pendingHoverIndex !== null) showPoint(pendingHoverIndex);
-      });
-    };
+    const restorePinned = () => pinnedIndex === null ? hidePoint() : showPoint(pinnedIndex);
     const indexFromEvent = (event) => {
       const bounds = interaction.getBoundingClientRect();
       const ratio = (event.clientX - bounds.left) / Math.max(bounds.width, 1);
-      const svgX = padding.left + ratio * plotWidth;
-      return Core.nearestTimelineIndex(pointXs, svgX);
+      return Math.round(ratio * (points.length - 1));
     };
     interaction.addEventListener("pointerenter", (event) => {
-      if (event.pointerType !== "touch") queueHoverPoint(indexFromEvent(event));
+      if (event.pointerType !== "touch") showPoint(indexFromEvent(event));
     });
     interaction.addEventListener("pointermove", (event) => {
       const index = indexFromEvent(event);
@@ -3471,26 +3453,21 @@
         if (!touchTracking) return;
         pinnedIndex = index;
       }
-      queueHoverPoint(index);
+      showPoint(index);
     });
-    interaction.addEventListener("pointerleave", () => {
-      pendingHoverIndex = null;
-      if (hoverFrame !== null) cancelAnimationFrame(hoverFrame);
-      hoverFrame = null;
-      restorePinned();
-    });
+    interaction.addEventListener("pointerleave", restorePinned);
     interaction.addEventListener("pointerdown", (event) => {
       if (event.pointerType !== "touch") return;
       touchTracking = true;
       pinnedIndex = indexFromEvent(event);
-      showPoint(pinnedIndex, true);
+      showPoint(pinnedIndex);
     });
     interaction.addEventListener("pointerup", (event) => {
       if (event.pointerType !== "touch") return;
       pinnedIndex = indexFromEvent(event);
       touchTracking = false;
       ignoreClicksBefore = Date.now() + 800;
-      showPoint(pinnedIndex, true);
+      showPoint(pinnedIndex);
     });
     interaction.addEventListener("pointercancel", () => {
       touchTracking = false;
@@ -3503,7 +3480,7 @@
       pinnedIndex = pinnedIndex === index ? null : index;
       restorePinned();
     });
-    interaction.addEventListener("focus", () => showPoint(keyboardIndex, true));
+    interaction.addEventListener("focus", () => showPoint(keyboardIndex));
     interaction.addEventListener("blur", restorePinned);
     interaction.addEventListener("keydown", (event) => {
       if (["ArrowLeft", "ArrowRight", "Home", "End", "Enter", " ", "Escape"].includes(event.key)) event.preventDefault();

@@ -142,14 +142,6 @@ test("收益率对比以共同起点归零，并把缺少个人记录日的基�
   assert.ok(Math.abs(points[2].excessReturn - (points[2].personalReturn - points[2].benchmarkReturn)) < 1e-12);
 });
 
-test("收益率走势按真实日期排布，并能命中离指针最近的记录日", () => {
-  assert.ok(Math.abs(Core.timelineRatio("2026-08-18", "2026-08-01", "2026-08-20") - 17 / 19) < 1e-12);
-  assert.ok(Math.abs(Core.timelineRatio("2026-08-19", "2026-08-01", "2026-08-20") - 18 / 19) < 1e-12);
-  assert.equal(Core.nearestTimelineIndex([54, 120, 680, 716, 744], 714), 3);
-  assert.equal(Core.nearestTimelineIndex([54, 120, 680, 716, 744], 738), 4);
-  assert.equal(Core.nearestTimelineIndex([], 100), -1);
-});
-
 test("个人表现指标按资金流调整后的期间收益复合并计算回撤", () => {
   const stats = Core.performanceStats({
     baseDate: "2026-06-01",

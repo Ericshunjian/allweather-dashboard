@@ -1844,7 +1844,6 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
 
 .return-comparison-chart .history-tooltip {
   width: min(260px, calc(100% - 18px));
-  transition: left 90ms ease-out, top 90ms ease-out, transform 90ms ease-out;
 }
 
 .return-comparison-chart .history-tooltip-row strong {
