@@ -164,6 +164,29 @@
     return Math.round((end - start) / 86400000);
   }
 
+  function timelineRatio(date, startDate, endDate) {
+    const value = Date.parse(`${date}T00:00:00Z`);
+    const start = Date.parse(`${startDate}T00:00:00Z`);
+    const end = Date.parse(`${endDate}T00:00:00Z`);
+    if (![value, start, end].every(Number.isFinite) || end <= start) return 0;
+    return Math.max(0, Math.min(1, (value - start) / (end - start)));
+  }
+
+  function nearestTimelineIndex(positions = [], target) {
+    if (!positions.length || !Number.isFinite(Number(target))) return -1;
+    const value = Number(target);
+    if (value <= positions[0]) return 0;
+    if (value >= positions.at(-1)) return positions.length - 1;
+    let low = 0;
+    let high = positions.length - 1;
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (positions[middle] <= value) low = middle;
+      else high = middle;
+    }
+    return value - positions[low] <= positions[high] - value ? low : high;
+  }
+
   function performanceStats({ baseDate, periods = [], recentDays = 30 }) {
     if (!baseDate) return null;
     const orderedPeriods = periods
@@ -300,6 +323,8 @@
     mergeById,
     normalizedToken,
     quoteFreshness,
-    stableUnderlyingIdentity
+    stableUnderlyingIdentity,
+    timelineRatio,
+    nearestTimelineIndex
   });
 });

@@ -3080,9 +3080,9 @@
     };
     const restorePinned = () => pinnedIndex === null ? hidePoint() : showPoint(pinnedIndex);
     const indexFromEvent = (event) => {
-      const bounds = svg.getBoundingClientRect();
-      const svgX = (event.clientX - bounds.left) / Math.max(bounds.width, 1) * width;
-      return Math.round((svgX - padding.left) / (width - padding.left - padding.right) * (points.length - 1));
+      const bounds = interaction.getBoundingClientRect();
+      const ratio = (event.clientX - bounds.left) / Math.max(bounds.width, 1);
+      return Math.round(ratio * (points.length - 1));
     };
     interaction.addEventListener("pointerenter", (event) => {
       if (event.pointerType === "touch") return;
@@ -3373,7 +3373,11 @@
     const minimum = rawMin - margin;
     const maximum = rawMax + margin;
     const range = Math.max(maximum - minimum, 0.01);
-    const x = (index) => padding.left + index / (points.length - 1) * (width - padding.left - padding.right);
+    const plotWidth = width - padding.left - padding.right;
+    const timelineStart = points[0].date;
+    const timelineEnd = latest.date;
+    const pointXs = points.map((point) => padding.left + Core.timelineRatio(point.date, timelineStart, timelineEnd) * plotWidth);
+    const x = (index) => pointXs[index];
     const y = (value) => padding.top + (maximum - value) / range * (height - padding.top - padding.bottom);
     const pathFor = (field) => points.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(point[field]).toFixed(2)}`).join(" ");
     const svg = createSvgNode("svg", { viewBox: `0 0 ${width} ${height}`, role: "group", "aria-label": "个人组合与严格风险平价累计收益率走势，悬停或点按查看" });
@@ -3415,6 +3419,8 @@
     let activeIndex = null;
     let hoverFrame = null;
     let pendingHoverIndex = null;
+    let touchTracking = false;
+    let ignoreClicksBefore = 0;
     const showPoint = (index, force = false) => {
       const safeIndex = Math.max(0, Math.min(points.length - 1, index));
       if (!force && activeIndex === safeIndex && !tooltip.hidden) return;
@@ -3447,19 +3453,25 @@
       if (hoverFrame !== null) return;
       hoverFrame = requestAnimationFrame(() => {
         hoverFrame = null;
-        if (pendingHoverIndex !== null && pinnedIndex === null) showPoint(pendingHoverIndex);
+        if (pendingHoverIndex !== null) showPoint(pendingHoverIndex);
       });
     };
     const indexFromEvent = (event) => {
-      const bounds = svg.getBoundingClientRect();
-      const svgX = (event.clientX - bounds.left) / Math.max(bounds.width, 1) * width;
-      return Math.round((svgX - padding.left) / (width - padding.left - padding.right) * (points.length - 1));
+      const bounds = interaction.getBoundingClientRect();
+      const ratio = (event.clientX - bounds.left) / Math.max(bounds.width, 1);
+      const svgX = padding.left + ratio * plotWidth;
+      return Core.nearestTimelineIndex(pointXs, svgX);
     };
     interaction.addEventListener("pointerenter", (event) => {
-      if (event.pointerType !== "touch" && pinnedIndex === null) queueHoverPoint(indexFromEvent(event));
+      if (event.pointerType !== "touch") queueHoverPoint(indexFromEvent(event));
     });
     interaction.addEventListener("pointermove", (event) => {
-      if (event.pointerType !== "touch" && pinnedIndex === null) queueHoverPoint(indexFromEvent(event));
+      const index = indexFromEvent(event);
+      if (event.pointerType === "touch") {
+        if (!touchTracking) return;
+        pinnedIndex = index;
+      }
+      queueHoverPoint(index);
     });
     interaction.addEventListener("pointerleave", () => {
       pendingHoverIndex = null;
@@ -3467,7 +3479,26 @@
       hoverFrame = null;
       restorePinned();
     });
+    interaction.addEventListener("pointerdown", (event) => {
+      if (event.pointerType !== "touch") return;
+      touchTracking = true;
+      pinnedIndex = indexFromEvent(event);
+      showPoint(pinnedIndex, true);
+    });
+    interaction.addEventListener("pointerup", (event) => {
+      if (event.pointerType !== "touch") return;
+      pinnedIndex = indexFromEvent(event);
+      touchTracking = false;
+      ignoreClicksBefore = Date.now() + 800;
+      showPoint(pinnedIndex, true);
+    });
+    interaction.addEventListener("pointercancel", () => {
+      touchTracking = false;
+      ignoreClicksBefore = Date.now() + 800;
+      restorePinned();
+    });
     interaction.addEventListener("click", (event) => {
+      if (Date.now() < ignoreClicksBefore) return;
       const index = indexFromEvent(event);
       pinnedIndex = pinnedIndex === index ? null : index;
       restorePinned();
