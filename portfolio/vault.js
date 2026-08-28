@@ -109,6 +109,7 @@
   let riskParityBenchmarkPromise = null;
   let riskParityBenchmarkState = "idle";
   let riskParityBenchmarkError = "";
+  let transactionsExpanded = false;
   const expandedHoldingGroups = new Set();
   const expandedDailyContributionGroups = new Set();
 
@@ -708,6 +709,7 @@
     sessionKey = null;
     vault = null;
     moneyValuesVisible = false;
+    transactionsExpanded = false;
     expandedHoldingGroups.clear();
     expandedDailyContributionGroups.clear();
     [holdingDialog, tradeDialog, syncDialog, confirmDialog].forEach((dialog) => {
@@ -2682,7 +2684,13 @@
     $("transaction-count").textContent = `${entries.length}笔记录`;
     $("transactions-empty").hidden = entries.length > 0;
     $("transactions-table-wrap").hidden = entries.length === 0;
-    $("transactions-limit-note").hidden = entries.length <= RECENT_TRANSACTION_LIMIT;
+    if (entries.length <= RECENT_TRANSACTION_LIMIT) transactionsExpanded = false;
+    const hasMoreEntries = entries.length > RECENT_TRANSACTION_LIMIT;
+    const toggle = $("toggle-transactions");
+    toggle.hidden = !hasMoreEntries;
+    toggle.textContent = transactionsExpanded ? "收起" : "查看全部";
+    toggle.setAttribute("aria-expanded", String(transactionsExpanded));
+    $("transactions-limit-note").hidden = !hasMoreEntries || transactionsExpanded;
     const body = $("transactions-body");
     body.replaceChildren();
     const latestByHolding = new Map();
@@ -2696,7 +2704,8 @@
         if (!latestLedgerByHolding.has(ledgerEvent.holdingId)) latestLedgerByHolding.set(ledgerEvent.holdingId, ledgerEvent.id);
       });
 
-    entries.slice(0, RECENT_TRANSACTION_LIMIT).forEach((transaction) => {
+    const visibleEntries = transactionsExpanded ? entries : entries.slice(0, RECENT_TRANSACTION_LIMIT);
+    visibleEntries.forEach((transaction) => {
       const holding = vault.holdings.find((item) => item.id === transaction.holdingId);
       const row = document.createElement("tr");
       appendCell(row, "时间", transactionTimestamp(transaction));
@@ -4488,6 +4497,10 @@
   $("refresh-quotes").addEventListener("click", () => refreshQuotes());
   $("add-holding").addEventListener("click", () => openHoldingDialog());
   $("record-trade").addEventListener("click", () => openTradeDialog());
+  $("toggle-transactions").addEventListener("click", () => {
+    transactionsExpanded = !transactionsExpanded;
+    renderTransactions();
+  });
   $("open-sync").addEventListener("click", openSyncDialog);
   $("close-sync-dialog").addEventListener("click", () => syncDialog.close());
   $("sync-auth-form").addEventListener("submit", handleSyncSignIn);

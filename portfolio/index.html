@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260828-ledger16">
+  <link rel="stylesheet" href="vault.css?v=20260828-ledger17">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -212,7 +212,10 @@
           <p class="eyebrow">TRADES</p>
           <h2 id="transactions-title">交易与资金记录</h2>
         </div>
-        <span id="transaction-count" class="status-pill">0笔记录</span>
+        <div class="transactions-heading-actions">
+          <span id="transaction-count" class="status-pill">0笔记录</span>
+          <button id="toggle-transactions" class="secondary-button transaction-toggle-button" type="button" aria-expanded="false" hidden>查看全部</button>
+        </div>
       </div>
       <p class="transaction-source-note">买卖、资金转入转出和录入更正分别记账；只有行情与收益变化计入盈亏。</p>
       <div id="transactions-empty" class="empty-state transaction-empty">
@@ -236,7 +239,7 @@
           <tbody id="transactions-body"></tbody>
         </table>
       </div>
-      <p id="transactions-limit-note" class="transaction-limit-note" hidden>仅显示最近 5 条记录，完整记录仍保存在台账中。</p>
+      <p id="transactions-limit-note" class="transaction-limit-note" hidden>默认显示最近 5 条记录，可在右上角查看全部。</p>
     </section>
 
     <section class="history-section" data-mobile-section="history">
@@ -583,7 +586,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="ledger-core.js?v=20260828-ledger16"></script>
-  <script src="vault.js?v=20260828-ledger16"></script>
+  <script src="ledger-core.js?v=20260828-ledger17"></script>
+  <script src="vault.js?v=20260828-ledger17"></script>
 </body>
 </html>

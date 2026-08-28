@@ -1319,6 +1319,18 @@ button.daily-contribution-row:focus-visible .daily-contribution-track {
   align-items: flex-end;
 }
 
+.transactions-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transaction-toggle-button {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
 .transaction-source-note,
 .transaction-limit-note {
   margin: 0 0 14px;
