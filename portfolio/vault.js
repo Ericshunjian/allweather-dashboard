@@ -5,6 +5,7 @@
   const SYNC_CONFIG = window.PORTFOLIO_SYNC_CONFIG || {};
   const Core = window.PortfolioLedgerCore;
   const MAX_SNAPSHOT_RECORDS = 5000;
+  const RECENT_TRANSACTION_LIMIT = 5;
   const STORAGE_KEY = "allweather.portfolio.vault.v1";
   const LOCAL_USER_DATA_KEY = "allweather.portfolio.vault.has-user-data.v1";
   const SYNC_SESSION_KEY = "allweather.portfolio.sync.session.v1";
@@ -2681,7 +2682,7 @@
     $("transaction-count").textContent = `${entries.length}笔记录`;
     $("transactions-empty").hidden = entries.length > 0;
     $("transactions-table-wrap").hidden = entries.length === 0;
-    $("transactions-limit-note").hidden = entries.length <= 30;
+    $("transactions-limit-note").hidden = entries.length <= RECENT_TRANSACTION_LIMIT;
     const body = $("transactions-body");
     body.replaceChildren();
     const latestByHolding = new Map();
@@ -2695,7 +2696,7 @@
         if (!latestLedgerByHolding.has(ledgerEvent.holdingId)) latestLedgerByHolding.set(ledgerEvent.holdingId, ledgerEvent.id);
       });
 
-    entries.slice(0, 30).forEach((transaction) => {
+    entries.slice(0, RECENT_TRANSACTION_LIMIT).forEach((transaction) => {
       const holding = vault.holdings.find((item) => item.id === transaction.holdingId);
       const row = document.createElement("tr");
       appendCell(row, "时间", transactionTimestamp(transaction));

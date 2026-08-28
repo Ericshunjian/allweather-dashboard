@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>个人资产台账</title>
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-  <link rel="stylesheet" href="vault.css?v=20260821-ledger15">
+  <link rel="stylesheet" href="vault.css?v=20260828-ledger16">
 </head>
 <body>
   <main id="lock-screen" class="lock-screen">
@@ -236,7 +236,7 @@
           <tbody id="transactions-body"></tbody>
         </table>
       </div>
-      <p id="transactions-limit-note" class="transaction-limit-note" hidden>仅显示最近 30 笔记录。</p>
+      <p id="transactions-limit-note" class="transaction-limit-note" hidden>仅显示最近 5 条记录，完整记录仍保存在台账中。</p>
     </section>
 
     <section class="history-section" data-mobile-section="history">
@@ -583,7 +583,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="sync-config.js"></script>
   <script src="auth-config.js"></script>
-  <script src="ledger-core.js?v=20260821-ledger15"></script>
-  <script src="vault.js?v=20260821-ledger15"></script>
+  <script src="ledger-core.js?v=20260828-ledger16"></script>
+  <script src="vault.js?v=20260828-ledger16"></script>
 </body>
 </html>
