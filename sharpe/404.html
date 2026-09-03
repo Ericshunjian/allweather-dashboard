@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="data:,">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全天候策略 · Sharpe 直配</title>
+    <link rel="preconnect" href="https://cdn.plot.ly" crossorigin>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background:
+                radial-gradient(circle at top right, rgba(188,108,37,.10), transparent 24%),
+                radial-gradient(circle at left 20%, rgba(38,70,83,.08), transparent 20%),
+                #f5efe6;
+            color: #102030;
+            min-height: 100vh;
+        }
+        .header {
+            background: #fffaf2;
+            padding: 22px 30px 18px;
+            border-bottom: 1px solid rgba(16,32,48,0.10);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            flex-wrap: wrap;
+            box-shadow: 0 12px 30px rgba(16,32,48,.05);
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #102030;
+        }
+        .header .date {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        .control-bar {
+            padding: 12px 30px 0;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .control-panel {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            background: #fffaf2;
+            border: 1px solid rgba(16,32,48,0.10);
+            border-radius: 14px;
+            padding: 10px 12px;
+            box-shadow: 0 12px 30px rgba(16,32,48,.05);
+        }
+        .control-panel span {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        .control-panel select,
+        .control-panel input {
+            background: #fff;
+            border: 1px solid rgba(16,32,48,0.14);
+            color: #102030;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            outline: none;
+        }
+        .control-panel input {
+            width: 160px;
+            text-align: right;
+        }
+        .allocation-panel {
+            margin: 16px 30px 0;
+            padding: 20px;
+            background: #fffaf2;
+            border: 1px solid rgba(16,32,48,0.10);
+            border-radius: 8px;
+        }
+        .allocation-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(16,32,48,0.08);
+        }
+        .allocation-toolbar h2 { font-size: 20px; color: #102030; }
+        .allocation-subtitle,
+        .allocation-meta,
+        .allocation-note {
+            color: #6b7280;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .capital-input-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #6b7280;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .capital-input-wrap {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 7px 10px;
+            background: #fff;
+            border: 1px solid rgba(16,32,48,0.14);
+            border-radius: 6px;
+            color: #102030;
+            font-weight: 700;
+        }
+        .capital-input-wrap input {
+            width: 130px;
+            border: 0;
+            outline: 0;
+            color: #102030;
+            background: transparent;
+            text-align: right;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .allocation-meta { padding: 12px 0 8px; }
+        .allocation-head,
+        .allocation-row {
+            display: grid;
+            grid-template-columns: minmax(170px, 1.3fr) minmax(90px, .55fr) minmax(150px, .9fr) minmax(150px, 1fr);
+            gap: 16px;
+            align-items: center;
+        }
+        .allocation-head {
+            padding: 8px 12px;
+            background: rgba(38,70,83,0.06);
+            color: #6b7280;
+            font-size: 11px;
+        }
+        .allocation-row {
+            min-height: 60px;
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(16,32,48,0.08);
+        }
+        .allocation-asset,
+        .allocation-cell { min-width: 0; }
+        .allocation-asset strong,
+        .allocation-cell strong { display: block; color: #102030; font-size: 14px; }
+        .allocation-asset span,
+        .allocation-execution span {
+            display: block;
+            margin-top: 3px;
+            color: #6b7280;
+            font-size: 11px;
+            font-weight: 400;
+        }
+        .allocation-summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 14px;
+        }
+        .allocation-summary > div {
+            padding: 12px;
+            background: rgba(38,70,83,0.05);
+            border-radius: 6px;
+        }
+        .allocation-summary span,
+        .allocation-summary small { display: block; color: #6b7280; font-size: 11px; }
+        .allocation-summary strong {
+            display: inline-block;
+            margin: 5px 6px 2px 0;
+            color: #102030;
+            font-size: 17px;
+        }
+        .allocation-note { margin-top: 10px; }
+        .rule-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .rule-list > div {
+            min-height: 64px;
+            padding: 12px;
+            background: rgba(38,70,83,0.05);
+            border-radius: 6px;
+        }
+        .rule-list strong,
+        .rule-list span { display: block; }
+        .rule-list strong { color: #102030; font-size: 16px; }
+        .rule-list span { margin-top: 4px; color: #6b7280; font-size: 11px; line-height: 1.5; }
+        .metrics-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            padding: 16px 30px;
+        }
+        .metric {
+            background: #fffaf2;
+            border: 1px solid rgba(16,32,48,0.10);
+            border-radius: 16px;
+            padding: 16px;
+            text-align: center;
+            transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+            box-shadow: 0 12px 30px rgba(16,32,48,.05);
+        }
+        .metric:hover {
+            transform: translateY(-2px);
+            border-color: rgba(188,108,37,.22);
+            box-shadow: 0 16px 36px rgba(16,32,48,.07);
+        }
+        .metric .label {
+            font-size: 11px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+        .metric .value {
+            font-size: 22px;
+            font-weight: 700;
+        }
+        .metric .value.positive { color: #1f7a4c; }
+        .metric .value.negative { color: #b43f3f; }
+        .metric .value.neutral { color: #264653; }
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            padding: 16px 30px 30px;
+        }
+        .card {
+            background: #fffaf2;
+            border: 1px solid rgba(16,32,48,0.10);
+            border-radius: 18px;
+            padding: 18px;
+            min-width: 0;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-shadow: 0 12px 30px rgba(16,32,48,.05);
+        }
+        .card:hover {
+            border-color: rgba(188,108,37,.22);
+            box-shadow: 0 16px 36px rgba(16,32,48,.07);
+        }
+        .card.full-width {
+            grid-column: span 2;
+        }
+        .card h3 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #264653;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(16,32,48,0.08);
+        }
+        .plotly-chart { width: 100%; }
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .info-table th,
+        .info-table td {
+            padding: 10px 8px;
+            border-top: 1px solid rgba(16,32,48,0.08);
+            text-align: right;
+            white-space: nowrap;
+        }
+        .info-table th {
+            color: #6b7280;
+            font-weight: 500;
+        }
+        .info-table td:first-child,
+        .info-table th:first-child {
+            text-align: left;
+        }
+        .best { background: rgba(188,108,37,.08); }
+        .dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            margin-right: 8px;
+        }
+        .hint {
+            color: #6b7280;
+            font-size: 12px;
+            line-height: 1.7;
+            margin-top: 12px;
+        }
+        .rebalance-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .rebalance-entry {
+            border: 1px solid rgba(16,32,48,0.10);
+            border-radius: 14px;
+            background: #fff;
+            overflow: hidden;
+        }
+        .rebalance-entry summary {
+            list-style: none;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #102030;
+        }
+        .rebalance-entry summary::-webkit-details-marker {
+            display: none;
+        }
+        .rebalance-trigger {
+            font-size: 12px;
+            color: #8d5524;
+            background: rgba(188,108,37,0.10);
+            border: 1px solid rgba(188,108,37,0.18);
+            border-radius: 999px;
+            padding: 4px 10px;
+            white-space: nowrap;
+        }
+        .rebalance-content {
+            padding: 0 16px 16px;
+            overflow-x: auto;
+        }
+        .rebalance-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .rebalance-table th,
+        .rebalance-table td {
+            padding: 10px 8px;
+            border-top: 1px solid rgba(16,32,48,0.08);
+            text-align: right;
+            white-space: nowrap;
+        }
+        .rebalance-table th {
+            color: #6b7280;
+            font-weight: 500;
+        }
+        .rebalance-table td:first-child,
+        .rebalance-table td:nth-child(2),
+        .rebalance-table th:first-child,
+        .rebalance-table th:nth-child(2) {
+            text-align: left;
+        }
+        .empty-state {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        .delta-up { color: #1f7a4c; }
+        .delta-down { color: #b43f3f; }
+        .delta-flat { color: #6b7280; }
+        .footer {
+            text-align: center;
+            padding: 16px;
+            color: #6b7280;
+            font-size: 12px;
+        }
+        @media (max-width: 900px) {
+            .dashboard { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+            .card.full-width { grid-column: auto; }
+            .control-bar { justify-content: stretch; }
+            .control-panel { width: 100%; }
+            .allocation-panel { margin: 16px; padding: 16px; }
+            .allocation-toolbar { align-items: flex-start; flex-direction: column; }
+            .capital-input-label { width: 100%; justify-content: space-between; }
+            .allocation-head { display: none; }
+            .allocation-row { grid-template-columns: 1fr 1fr; gap: 10px 16px; padding: 14px 4px; }
+            .allocation-asset { grid-column: 1 / -1; }
+            .allocation-cell::before {
+                content: attr(data-label);
+                display: block;
+                margin-bottom: 3px;
+                color: #6b7280;
+                font-size: 10px;
+            }
+            .allocation-summary,
+            .rule-list { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="strategy-variant-nav" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px 18px;background:#fffaf2;color:#102030;border-bottom:1px solid rgba(16,32,48,.08);box-shadow:0 10px 24px rgba(16,32,48,.04);">
+  <span style="font-size:12px;opacity:.72;">页面</span>
+  <a href="../" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid rgba(16,32,48,.10);color:#102030;font-weight:600;">约束风险平价 v2</a>
+  <a href="../strict-risk-parity/" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid rgba(16,32,48,.10);color:#102030;font-weight:600;">严格等风险贡献</a>
+  <a href="./" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:#e9dcc6;border:1px solid rgba(16,32,48,.10);color:#102030;font-weight:600;">Sharpe 直配</a>
+  <a href="../risk-review/" style="text-decoration:none;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid rgba(16,32,48,.10);color:#102030;font-weight:600;">风险复盘</a>
+</div>
+
+<div class="header">
+    <h1 id="dashboard-title">Sharpe 直配 · 成立于 2017 年</h1>
+    <div id="dashboard-date" class="date">
+        策略成立日: 2017-01-01 · 数据截至: 2026-09-03 · 生成时间: 2026-09-03 20:16
+    </div>
+</div>
+
+<div class="control-bar">
+    <div class="control-panel">
+        <span>策略成立年份:</span>
+        <select id="calc-year"><option value="2017" selected>2017</option><option value="2018" >2018</option><option value="2019" >2019</option><option value="2020" >2020</option><option value="2021" >2021</option><option value="2022" >2022</option><option value="2023" >2023</option><option value="2024" >2024</option><option value="2025" >2025</option><option value="2026" >2026</option></select>
+    </div>
+</div>
+
+<section class="allocation-panel">
+    <div class="allocation-toolbar">
+        <div>
+            <h2>当前配置建议</h2>
+            <div class="allocation-subtitle">成立年份决定独立历史回放；当前权重始终按最新 125 日信号计算，输入资金后换算执行金额。</div>
+        </div>
+        <label class="capital-input-label">
+            <span>当前可投入资金</span>
+            <span class="capital-input-wrap">¥ <input id="calc-capital" type="number" min="1" step="10000" value="5000000"></span>
+        </label>
+    </div>
+    <div id="calc-meta" class="allocation-meta"></div>
+    <div class="allocation-head">
+        <span>资产</span><span>建议权重</span><span>建议金额</span><span>执行数量</span>
+    </div>
+    <div id="calc-results"></div>
+    <div class="allocation-summary">
+        <div><span>预计资金占用</span><strong id="calc-capital-used">¥0</strong><small id="calc-usage-ratio">0%</small></div>
+        <div><span>预留现金</span><strong id="calc-cash-buffer">¥0</strong></div>
+        <div><span>总名义敞口</span><strong id="calc-total-nominal">¥0</strong><small id="calc-leverage">0.0x</small></div>
+    </div>
+    <div class="allocation-note">现货显示实际买入金额；国债期货显示名义金额、整手数量和预计保证金。</div>
+</section>
+
+<div id="metrics-section" class="metrics-bar"></div>
+
+<div class="dashboard">
+    <div class="card">
+        <h3>策略规则</h3>
+        <div class="rule-list">
+            <div><strong>125 日</strong><span>滚动收益和波动计算 Sharpe</span></div>
+            <div><strong>月度</strong><span>成立日建仓，已完成月末调仓</span></div>
+            <div><strong>0%–60%</strong><span>黄金及权益单项权重区间</span></div>
+            <div><strong>0%–80%</strong><span>国债期货权重区间</span></div>
+        </div>
+    </div>
+    <div class="card">
+        <h3>当前权重与信号</h3>
+        <table class="info-table">
+            <thead>
+                <tr>
+                    <th>资产</th>
+                    <th>权重</th>
+                    <th>滚动夏普</th>
+                </tr>
+            </thead>
+            <tbody id="asset-signal-body"></tbody>
+        </table>
+    </div>
+
+    <div class="card full-width">
+        <h3>起始以来净值走势</h3>
+        <div id="chart-cumulative" class="plotly-chart"></div>
+    </div>
+
+    <div class="card">
+        <h3>回撤走势</h3>
+        <div id="chart-drawdown" class="plotly-chart"></div>
+    </div>
+
+    <div class="card">
+        <h3>年度收益</h3>
+        <div id="chart-yearly" class="plotly-chart"></div>
+    </div>
+
+    <div class="card">
+        <h3>当前持仓权重</h3>
+        <div id="chart-weights" class="plotly-chart"></div>
+    </div>
+
+    <div class="card">
+        <h3>滚动 Sharpe 信号</h3>
+        <div id="chart-sharpes" class="plotly-chart"></div>
+    </div>
+
+    <div class="card full-width">
+        <h3>各资产区间走势</h3>
+        <div id="chart-assets" class="plotly-chart"></div>
+    </div>
+
+    <div class="card">
+        <h3>年度收益归因</h3>
+        <div id="chart-contribution" class="plotly-chart"></div>
+    </div>
+
+    <div class="card full-width">
+        <h3>最近 12 次月度调仓</h3>
+        <table class="info-table">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>资产</th>
+                    <th>目标权重</th>
+                    <th>较上期变化</th>
+                </tr>
+            </thead>
+            <tbody id="rebalance-body"></tbody>
+        </table>
+    </div>
+    <div id="rebalance-section" style="display:none;"></div>
+</div>
+
+<div class="footer">
+    全天候策略 · Sharpe 直配 · Python 自动生成
+</div>
+
+<script>
+    const sharpeDataManifest = {"default_year": "2017", "data_version": "20260903201703398827", "year_urls": {"2017": "../data/sharpe/2017.json", "2018": "../data/sharpe/2018.json", "2019": "../data/sharpe/2019.json", "2020": "../data/sharpe/2020.json", "2021": "../data/sharpe/2021.json", "2022": "../data/sharpe/2022.json", "2023": "../data/sharpe/2023.json", "2024": "../data/sharpe/2024.json", "2025": "../data/sharpe/2025.json", "2026": "../data/sharpe/2026.json"}};
+    const yearPayloads = {};
+    const calculatorPayloads = {"2017": {"focus_year": 2017, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}, "2018": {"focus_year": 2018, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}, "2019": {"focus_year": 2019, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}, "2020": {"focus_year": 2020, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}, "2021": {"focus_year": 2021, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}, "2022": {"focus_year": 2022, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}, "2023": {"focus_year": 2023, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}, "2024": {"focus_year": 2024, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}, "2025": {"focus_year": 2025, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}, "2026": {"focus_year": 2026, "data_as_of": "2026-09-03", "capital": 5000000.0, "capital_buffer": 0.98, "assets": [{"name": "华安黄金ETF", "code": "518880.SH", "color": "#d97706", "type": "spot", "multiplier": 1.0, "min_trade_unit": 100.0, "unit": "份", "display_mode": "quantity", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "东证红利低波", "code": "921446.CSI", "color": "#059669", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "中证A500", "code": "000510CNY010", "color": "#dc2626", "type": "spot", "multiplier": 1.0, "min_trade_unit": 1.0, "unit": "万元", "display_mode": "amount", "margin_rate": 1.0, "face_value": 0.0, "has_explicit_face_value": false}, {"name": "10年期国债期货", "code": "T.CFE", "color": "#2563eb", "type": "futures", "multiplier": 10000.0, "min_trade_unit": 1.0, "unit": "手", "display_mode": "quantity", "margin_rate": 0.02, "face_value": 0.0, "has_explicit_face_value": false}], "latest_target_weights": {"518880.SH": 0.05105549748038957, "921446.CSI": 0.15263259353955658, "000510CNY010": 0.18179069091210398, "T.CFE": 0.6145212180679499}, "latest_prices": {"518880.SH": 8.902, "921446.CSI": 6252.63, "000510CNY010": 8205.44, "T.CFE": 109.49}}};
+    let payload = yearPayloads[String(2017)] || calculatorPayloads[String(2017)] || Object.values(calculatorPayloads)[0];
+    const calcYearInput = document.getElementById('calc-year');
+    const calcCapInput = document.getElementById('calc-capital');
+    const metricsSection = document.getElementById('metrics-section');
+    const assetSignalBody = document.getElementById('asset-signal-body');
+    const rebalanceBody = document.getElementById('rebalance-body');
+    const rebalanceSection = document.getElementById('rebalance-section');
+    const dashboardTitle = document.getElementById('dashboard-title');
+    const dashboardDate = document.getElementById('dashboard-date');
+    const calcResults = document.getElementById('calc-results');
+    const calcMeta = document.getElementById('calc-meta');
+    const calcCapitalUsed = document.getElementById('calc-capital-used');
+    const calcUsageRatio = document.getElementById('calc-usage-ratio');
+    const calcCashBuffer = document.getElementById('calc-cash-buffer');
+    const calcTotalNominal = document.getElementById('calc-total-nominal');
+    const calcLeverage = document.getElementById('calc-leverage');
+    const plotBg = '#fffaf2';
+    const paperBg = '#fffaf2';
+    const gridColor = 'rgba(16,32,48,0.10)';
+    const fontColor = '#102030';
+    const baseLayout = {
+        paper_bgcolor: paperBg,
+        plot_bgcolor: plotBg,
+        font: { color: fontColor, size: 11 },
+        margin: { t: 10, b: 40, l: 50, r: 20 },
+        xaxis: { gridcolor: gridColor, zerolinecolor: gridColor },
+        yaxis: { gridcolor: gridColor, zerolinecolor: gridColor },
+        legend: { orientation: 'h', y: -0.15, font: { size: 10 } },
+    };
+
+    function fmtPct(value, digits = 2) {
+        if (value === null || value === undefined || Number.isNaN(value)) return '--';
+        return `${(value * 100).toFixed(digits)}%`;
+    }
+
+    function fmtNum(value, digits = 0) {
+        return Number(value || 0).toLocaleString(undefined, {
+            maximumFractionDigits: digits,
+            minimumFractionDigits: digits,
+        });
+    }
+
+    function fmtCny(value, digits = 0) {
+        return `¥${fmtNum(value, digits)}`;
+    }
+
+    function selectYearPayload(selectedYear) {
+        const key = String(selectedYear || calcYearInput.value || payload.focus_year);
+        payload = yearPayloads[key] || calculatorPayloads[key] || calculatorPayloads['2017'] || Object.values(calculatorPayloads)[0];
+        return payload;
+    }
+
+    async function ensureYearPayload(selectedYear) {
+        const key = String(selectedYear || calcYearInput.value || payload.focus_year);
+        if (yearPayloads[key]?.simulation) return yearPayloads[key];
+        const url = sharpeDataManifest.year_urls?.[key];
+        if (!url) throw new Error(`缺少 ${key} 年 Sharpe 历史数据`);
+        const dataVersion = sharpeDataManifest.data_version;
+        const separator = String(url).includes('?') ? '&' : '?';
+        const requestUrl = dataVersion
+            ? `${url}${separator}v=${encodeURIComponent(dataVersion)}`
+            : url;
+        const response = await fetch(requestUrl, { cache: 'default' });
+        if (!response.ok) throw new Error(`数据加载失败 (${response.status}): ${requestUrl}`);
+        yearPayloads[key] = await response.json();
+        payload = yearPayloads[key];
+        return payload;
+    }
+
+    function updateCalculator(selectedYear) {
+        selectYearPayload(selectedYear);
+        const capital = Math.max(parseFloat(calcCapInput.value) || 0, 1);
+        const targetWeights = payload.latest_target_weights || {};
+        const latestPrices = payload.latest_prices || {};
+        const marginUsed = payload.assets.reduce((sum, asset) => {
+            const fundingRate = asset.type === 'futures' ? Number(asset.margin_rate || 0) : 1;
+            return sum + Number(targetWeights[asset.code] || 0) * fundingRate;
+        }, 0);
+        const targetTotalNominal = marginUsed > 0
+            ? capital * Number(payload.capital_buffer || 0.98) / marginUsed
+            : 0;
+        let totalNominal = 0;
+        let totalCapitalUsed = 0;
+
+        calcResults.innerHTML = payload.assets.map((asset) => {
+            const targetWeight = Number(targetWeights[asset.code] || 0);
+            const targetNominal = targetWeight * targetTotalNominal;
+            const price = Number(latestPrices[asset.code] || 0);
+            const multiplier = Number(asset.multiplier || 1);
+            const minTradeUnit = Number(asset.min_trade_unit || 1);
+            const isAmountProxy = asset.display_mode === 'amount' || asset.unit === '万元';
+            const calcPrice = asset.type === 'futures'
+                ? price
+                : (asset.has_explicit_face_value ? Number(asset.face_value || 0) : price);
+            const rawQty = calcPrice > 0 ? targetNominal / (calcPrice * multiplier) : 0;
+            const roundedQty = minTradeUnit > 0
+                ? Math.round(rawQty / minTradeUnit) * minTradeUnit
+                : rawQty;
+            const actualNominal = isAmountProxy
+                ? targetNominal
+                : Math.abs(roundedQty * calcPrice * multiplier);
+            const capitalUsed = asset.type === 'futures'
+                ? actualNominal * Number(asset.margin_rate || 0)
+                : actualNominal;
+            totalNominal += actualNominal;
+            totalCapitalUsed += capitalUsed;
+
+            const amountText = asset.type === 'futures'
+                ? `${fmtCny(actualNominal)} 名义`
+                : fmtCny(actualNominal);
+            const executionText = asset.type === 'futures'
+                ? `${fmtNum(roundedQty, 0)} 手<span>保证金 ${fmtCny(capitalUsed)}</span>`
+                : isAmountProxy
+                    ? '按金额配置'
+                    : `${fmtNum(roundedQty, 0)} ${asset.unit}`;
+            return `
+                <div class="allocation-row">
+                    <div class="allocation-asset"><strong>${asset.name}</strong><span>${asset.code}</span></div>
+                    <div class="allocation-cell" data-label="建议权重"><strong>${fmtPct(targetWeight, 1)}</strong></div>
+                    <div class="allocation-cell" data-label="建议金额"><strong>${amountText}</strong></div>
+                    <div class="allocation-cell allocation-execution" data-label="执行数量"><strong>${executionText}</strong></div>
+                </div>`;
+        }).join('');
+
+        calcMeta.innerText = `建议依据：${payload.focus_year} 年成立路径 · 数据截至 ${payload.data_as_of}`;
+        calcCapitalUsed.innerText = fmtCny(totalCapitalUsed);
+        calcUsageRatio.innerText = fmtPct(totalCapitalUsed / capital, 1);
+        calcCashBuffer.innerText = fmtCny(Math.max(capital - totalCapitalUsed, 0));
+        calcTotalNominal.innerText = fmtCny(totalNominal);
+        calcLeverage.innerText = `${(totalNominal / capital).toFixed(1)}x`;
+    }
+
+    function sampleStd(values) {
+        if (values.length <= 1) return 0;
+        const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+        const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1);
+        return Math.sqrt(Math.max(variance, 0));
+    }
+
+    function monthKey(dateStr) {
+        return dateStr.slice(0, 7);
+    }
+
+    function yearKey(dateStr) {
+        return dateStr.slice(0, 4);
+    }
+
+    function lastNonNull(values) {
+        for (let i = values.length - 1; i >= 0; i -= 1) {
+            const value = values[i];
+            if (value !== null && value !== undefined && !Number.isNaN(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    function buildMetricsHtml(metrics) {
+        const cards = [
+            ['区间累计收益', fmtPct(metrics.totalReturn, 2), metrics.totalReturn >= 0 ? 'positive' : 'negative'],
+            ['年化收益', fmtPct(metrics.annualReturn, 2), metrics.annualReturn >= 0 ? 'positive' : 'negative'],
+            ['年化波动', fmtPct(metrics.annualVolatility, 2), 'neutral'],
+            ['夏普比率', Number(metrics.sharpe).toFixed(2), 'neutral'],
+            ['最大回撤', fmtPct(metrics.maxDrawdown, 2), 'negative'],
+            ['期末资金净值', fmtCny(metrics.endingEquity, 0), metrics.endingEquity >= metrics.capital ? 'positive' : 'negative'],
+            ['名义杠杆', `${Number(metrics.nominalLeverage || 0).toFixed(2)}x`, 'neutral'],
+            ['资金占用率', fmtPct(metrics.capitalUsageRatio || 0, 1), 'neutral'],
+            ['固定 Lookback', `${payload.lookback} 日`, 'neutral'],
+            ['回放交易日', fmtNum(metrics.tradingDays, 0), 'neutral'],
+        ];
+        return cards.map(([label, value, cls]) => `
+            <div class="metric">
+                <div class="label">${label}</div>
+                <div class="value ${cls}">${value}</div>
+            </div>
+        `).join('');
+    }
+
+    function buildAssetSignalRows(state) {
+        return payload.assets.map((asset, idx) => {
+            const sharpeValue = state.latestSharpes[idx];
+            const sharpeText = sharpeValue === null ? '--' : sharpeValue.toFixed(2);
+            return `
+                <tr>
+                    <td><span class="dot" style="background:${asset.color}"></span>${asset.name}</td>
+                    <td>${fmtPct(state.latestWeights[idx], 1)}</td>
+                    <td>${sharpeText}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function buildRebalanceHtml(records) {
+        if (!records.length) {
+            return `<div class="card full-width"><h3>月度调仓建议</h3><div class="empty-state">当前回放区间暂无月度调仓建议。</div></div>`;
+        }
+
+        const grouped = new Map();
+        records.forEach((record) => {
+            if (!grouped.has(record.date)) grouped.set(record.date, []);
+            grouped.get(record.date).push(record);
+        });
+
+        const dates = Array.from(grouped.keys()).sort().reverse();
+        const sections = dates.map((date, idx) => {
+            const rows = grouped.get(date);
+            const trigger = rows[0].trigger || '月度调仓';
+            const body = rows.map((row) => {
+                const isAmount = row.display_mode === 'amount';
+                const deltaValue = isAmount ? row.delta_nominal : row.delta_qty;
+                const deltaClass = deltaValue > 0 ? 'positive' : deltaValue < 0 ? 'negative' : 'neutral';
+                const currentDisplay = isAmount
+                    ? fmtCny(row.current_nominal, 0)
+                    : `${fmtNum(row.current_qty, 0)} ${row.unit}`;
+                const targetDisplay = isAmount
+                    ? fmtCny(row.target_nominal, 0)
+                    : `${fmtNum(row.target_qty, 0)} ${row.unit}`;
+                const deltaDisplay = isAmount
+                    ? `${deltaValue >= 0 ? '+' : '-'}${fmtCny(Math.abs(deltaValue), 0)}`
+                    : `${deltaValue >= 0 ? '+' : ''}${fmtNum(deltaValue, 0)} ${row.unit}`;
+                return `
+                <tr>
+                    <td>${row.asset_name}</td>
+                    <td>${row.code}</td>
+                    <td>${currentDisplay}</td>
+                    <td>${targetDisplay}</td>
+                    <td class="${deltaClass}">${deltaDisplay}</td>
+                    <td>${fmtPct(row.target_weight, 1)}</td>
+                </tr>`;
+            }).join('');
+            return `
+            <details class="rebalance-entry"${idx === 0 ? ' open' : ''}>
+                <summary>
+                    <span>${date}</span>
+                    <span class="rebalance-trigger">${trigger}</span>
+                </summary>
+                <div class="rebalance-content">
+                    <table class="rebalance-table">
+                        <thead>
+                            <tr>
+                                <th>资产名称</th>
+                                <th>代码</th>
+                                <th>当前持仓</th>
+                                <th>建议持仓</th>
+                                <th>调仓变化</th>
+                                <th>目标权重</th>
+                            </tr>
+                        </thead>
+                        <tbody>${body}</tbody>
+                    </table>
+                </div>
+            </details>`;
+        }).join('');
+
+        return `<div class="card full-width"><h3>月度调仓建议</h3><div class="rebalance-list">${sections}</div></div>`;
+    }
+
+    function linkContributionRows(rows, returns, componentCount) {
+        const linked = Array(componentCount).fill(0);
+        for (let idx = 0; idx < returns.length; idx += 1) {
+            const row = rows[idx] || [];
+            const periodRet = returns[idx] || 0;
+            for (let compIdx = 0; compIdx < componentCount; compIdx += 1) {
+                linked[compIdx] = linked[compIdx] * (1 + periodRet) + (row[compIdx] || 0);
+            }
+        }
+        return linked;
+    }
+
+    function simulateDashboard(selectedYear) {
+        selectYearPayload(selectedYear);
+        const startIdx = 0;
+        const startDate = `${payload.focus_year}-01-01`;
+        const capital = Number(payload.capital || 0);
+        const dates = payload.simulation.dates;
+        const portfolioReturns = payload.simulation.portfolio_returns;
+        const cumulative = payload.simulation.portfolio_cumulative;
+
+        let runningMax = -Infinity;
+        const drawdown = cumulative.map((value) => {
+            runningMax = Math.max(runningMax, value);
+            return runningMax > 0 ? (value - runningMax) / runningMax : 0;
+        });
+
+        const totalReturn = (cumulative[cumulative.length - 1] || 1) - 1;
+        const annualReturn = portfolioReturns.length >= 20
+            ? (cumulative[cumulative.length - 1] || 1) ** (252 / Math.max(portfolioReturns.length, 1)) - 1
+            : totalReturn;
+        const annualVolatility = sampleStd(portfolioReturns) * Math.sqrt(252);
+        const sharpe = annualVolatility > 0 ? (annualReturn - 0.02) / annualVolatility : 0;
+        const maxDrawdown = drawdown.length ? Math.min(...drawdown) : 0;
+        const endingEquity = capital * (cumulative[cumulative.length - 1] || 1);
+
+        const latestWeights = payload.assets.map((asset) => {
+            const series = payload.simulation.weights[asset.name];
+            return series.length ? series[series.length - 1] : 0;
+        });
+        const latestSharpes = payload.assets.map((asset) => lastNonNull(payload.simulation.sharpes[asset.name]));
+
+        const assetPerformance = payload.assets.map((asset) => {
+            let carry = 1;
+            return payload.simulation.asset_daily_returns[asset.name].map((ret) => {
+                carry *= (1 + (ret || 0));
+                return carry - 1;
+            });
+        });
+
+        const attributionNames = payload.simulation.attribution_names || payload.assets.map((asset) => asset.name);
+        const attributionColors = payload.simulation.attribution_colors || payload.assets.map((asset) => asset.color);
+        const contributionCount = attributionNames.length;
+        const yearlyReturnsMap = new Map();
+        const yearlyContributionRowsMap = new Map();
+        const yearlyReturnSeriesMap = new Map();
+        for (let localIdx = 0; localIdx < portfolioReturns.length; localIdx += 1) {
+            const globalIdx = localIdx;
+            const year = yearKey(payload.simulation.dates[globalIdx]);
+            yearlyReturnsMap.set(year, (yearlyReturnsMap.get(year) ?? 1) * (1 + portfolioReturns[localIdx]));
+            const backendRow = payload.simulation.daily_contrib ? payload.simulation.daily_contrib[globalIdx] : null;
+            const contribRow = Array(contributionCount).fill(0);
+            if (backendRow) {
+                for (let idx = 0; idx < contributionCount; idx += 1) {
+                    contribRow[idx] = backendRow[idx] || 0;
+                }
+            } else {
+                payload.assets.forEach((asset, assetIdx) => {
+                    const weight = payload.simulation.weights[asset.name][globalIdx] ?? 0;
+                    const assetRet = payload.simulation.asset_daily_returns[asset.name][globalIdx] ?? 0;
+                    contribRow[assetIdx] = assetRet * weight;
+                });
+            }
+            if (!yearlyContributionRowsMap.has(year)) yearlyContributionRowsMap.set(year, []);
+            yearlyContributionRowsMap.get(year).push(contribRow);
+            if (!yearlyReturnSeriesMap.has(year)) yearlyReturnSeriesMap.set(year, []);
+            yearlyReturnSeriesMap.get(year).push(portfolioReturns[localIdx]);
+        }
+
+        const yearlyLabels = Array.from(yearlyReturnsMap.keys());
+        const yearlyValues = yearlyLabels.map((key) => (yearlyReturnsMap.get(key) || 1) - 1);
+        const yearlyContributionRows = yearlyLabels.map((key) => linkContributionRows(
+            yearlyContributionRowsMap.get(key) || [],
+            yearlyReturnSeriesMap.get(key) || [],
+            contributionCount
+        ));
+        const yearlyContributionSeries = attributionNames.map((name, assetIdx) => ({
+            name,
+            color: attributionColors[assetIdx] || '#4a5568',
+            values: yearlyContributionRows.map((row) => {
+                return row[assetIdx] || 0;
+            }),
+        }));
+        const latestSnapshot = payload.simulation.latest_snapshot || {};
+        const rebalanceRecords = payload.simulation.rebalance_records || [];
+
+        return {
+            selectedYear: String(payload.focus_year),
+            startDate: dates[0] || startDate,
+            latestDate: payload.data_as_of,
+            dates,
+            cumulative,
+            drawdown,
+            latestWeights,
+            latestSharpes,
+            assetPerformance,
+            yearlyLabels,
+            yearlyValues,
+            yearlyContributionSeries,
+            rebalanceRecords,
+            metrics: {
+                totalReturn,
+                annualReturn,
+                annualVolatility,
+                sharpe,
+                maxDrawdown,
+                endingEquity,
+                capital,
+                tradingDays: portfolioReturns.length,
+                nominalLeverage: Number(latestSnapshot.nominal_leverage || 0),
+                capitalUsageRatio: Number(latestSnapshot.capital_usage_ratio || 0),
+                marginRatio: Number(latestSnapshot.margin_ratio || 0),
+            },
+            startIdx,
+        };
+    }
+
+    function renderDashboard(state) {
+        metricsSection.innerHTML = buildMetricsHtml(state.metrics);
+        assetSignalBody.innerHTML = buildAssetSignalRows(state);
+        if (rebalanceBody) {
+            const legacyCard = rebalanceBody.closest('.card');
+            if (legacyCard) legacyCard.style.display = 'none';
+        }
+        rebalanceSection.style.display = '';
+        rebalanceSection.innerHTML = buildRebalanceHtml(state.rebalanceRecords);
+
+        dashboardTitle.innerText = `Sharpe 直配 · 成立于 ${state.selectedYear} 年`;
+        dashboardDate.innerText = `策略成立日: ${state.startDate} · 数据截至: ${state.latestDate} · 生成时间: ${payload.generated_at}`;
+        document.title = `Sharpe 直配 · 成立于 ${state.selectedYear} 年`;
+
+        Plotly.react('chart-cumulative', [{
+            x: state.dates,
+            y: state.cumulative.map((value) => value - 1),
+            name: payload.strategy_name,
+            type: 'scatter',
+            line: { color: '#264653', width: 2.5 },
+            fill: 'tozeroy',
+            fillcolor: 'rgba(38,70,83,0.06)',
+        }], Object.assign({}, baseLayout, {
+            height: 300,
+            yaxis: { gridcolor: gridColor, tickformat: '.2%', zerolinecolor: gridColor },
+            showlegend: false,
+        }), { responsive: true });
+
+        Plotly.react('chart-drawdown', [{
+            x: state.dates,
+            y: state.drawdown,
+            type: 'scatter',
+            fill: 'tozeroy',
+            fillcolor: 'rgba(180,63,63,0.15)',
+            line: { color: '#b43f3f', width: 1.6 },
+            name: '回撤',
+        }], Object.assign({}, baseLayout, {
+            height: 220,
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+            showlegend: false,
+        }), { responsive: true });
+
+        Plotly.react('chart-yearly', [{
+            x: state.yearlyLabels,
+            y: state.yearlyValues,
+            type: 'bar',
+            marker: {
+                color: state.yearlyValues.map((value) => value >= 0 ? '#2E8B57' : '#DC143C'),
+                opacity: 0.85,
+            },
+            name: '年度收益',
+        }], Object.assign({}, baseLayout, {
+            height: 220,
+            xaxis: Object.assign({}, baseLayout.xaxis, { type: 'category' }),
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+            showlegend: false,
+        }), { responsive: true });
+
+        Plotly.react('chart-weights', [{
+            labels: payload.assets.map((asset) => asset.name),
+            values: state.latestWeights,
+            type: 'pie',
+            hole: 0.5,
+            marker: { colors: payload.assets.map((asset) => asset.color) },
+            textinfo: 'label+percent',
+            textposition: 'outside',
+            textfont: { color: fontColor, size: 11 },
+        }], Object.assign({}, baseLayout, {
+            height: 260,
+            showlegend: false,
+            margin: { t: 10, b: 10, l: 10, r: 10 },
+        }), { responsive: true });
+
+        Plotly.react('chart-sharpes', payload.assets.map((asset) => ({
+            x: state.dates,
+            y: payload.simulation.sharpes[asset.name].slice(state.startIdx),
+            name: asset.name,
+            type: 'scatter',
+            line: { color: asset.color, width: 1.8 },
+        })).concat([{
+            x: state.dates,
+            y: state.dates.map(() => 0),
+            name: '零轴',
+            type: 'scatter',
+            line: { color: 'rgba(16,32,48,0.35)', width: 1, dash: 'dash' },
+        }]), Object.assign({}, baseLayout, {
+            height: 260,
+            yaxis: { gridcolor: gridColor, zerolinecolor: gridColor },
+        }), { responsive: true });
+
+        Plotly.react('chart-assets', payload.assets.map((asset, idx) => ({
+            x: state.dates,
+            y: state.assetPerformance[idx],
+            name: asset.name,
+            type: 'scatter',
+            line: { color: asset.color, width: 1.5 },
+            opacity: 0.8,
+        })), Object.assign({}, baseLayout, {
+            height: 260,
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+        }), { responsive: true });
+
+        Plotly.react('chart-contribution', state.yearlyContributionSeries.map((series) => ({
+            x: state.yearlyLabels,
+            y: series.values,
+            name: series.name,
+            type: 'bar',
+            marker: { color: series.color, opacity: 0.95 },
+        })), Object.assign({}, baseLayout, {
+            height: 220,
+            barmode: 'relative',
+            xaxis: Object.assign({}, baseLayout.xaxis, { type: 'category' }),
+            yaxis: { gridcolor: gridColor, tickformat: '.1%', zerolinecolor: gridColor },
+        }), { responsive: true });
+    }
+
+    let rerenderTimer = null;
+    async function renderSelectedYear() {
+        const selectedYear = calcYearInput.value || payload.focus_year;
+        metricsSection.innerHTML = '<div class="metric"><div class="label">历史场景</div><div class="value neutral">加载中...</div></div>';
+        try {
+            await ensureYearPayload(selectedYear);
+            updateCalculator(selectedYear);
+            renderDashboard(simulateDashboard(selectedYear));
+        } catch (error) {
+            console.error(error);
+            metricsSection.innerHTML = '<div class="metric"><div class="label">历史场景</div><div class="value negative">加载失败</div></div>';
+        }
+    }
+
+    function scheduleRender() {
+        clearTimeout(rerenderTimer);
+        rerenderTimer = setTimeout(renderSelectedYear, 120);
+    }
+
+    calcYearInput.addEventListener('change', scheduleRender);
+    calcCapInput.addEventListener('input', () => updateCalculator(calcYearInput.value || payload.focus_year));
+    updateCalculator(calcYearInput.value || payload.focus_year);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', renderSelectedYear, { once: true });
+    } else {
+        renderSelectedYear();
+    }
+</script>
+</body>
+</html>
