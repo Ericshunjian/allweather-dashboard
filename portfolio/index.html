@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://qt.gtimg.cn https://*.supabase.co; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <title>个人资产台账</title>
+  <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
+  <link rel="stylesheet" href="vault.css?v=20260828-ledger17">
+</head>
+<body>
+  <main id="lock-screen" class="lock-screen">
+    <section class="unlock-panel" aria-labelledby="unlock-title">
+      <div class="brand-mark" aria-hidden="true">AW</div>
+      <p class="eyebrow">ALL WEATHER</p>
+      <h1 id="unlock-title">个人资产台账</h1>
+      <p class="unlock-status">持仓始终加密保存，解锁后可同步到其他设备</p>
+      <form id="unlock-form" class="unlock-form">
+        <input type="text" name="username" autocomplete="username" value="portfolio-owner" hidden>
+        <label for="vault-password">访问密码</label>
+        <div class="password-row">
+          <input id="vault-password" name="password" type="password" autocomplete="current-password" required autofocus>
+          <button id="toggle-password" class="icon-button" type="button" aria-label="显示密码" title="显示密码">显示</button>
+        </div>
+        <button id="unlock-button" class="primary-button full-button" type="submit">解锁台账</button>
+        <p id="unlock-error" class="form-error" role="alert" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+
+  <div id="vault-app" class="app-shell" hidden>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">ALL WEATHER</p>
+        <h1>个人资产台账</h1>
+        <p id="valuation-time" class="header-meta">等待刷新行情</p>
+      </div>
+      <nav class="header-actions" aria-label="资产台账操作">
+        <div class="header-primary-actions">
+          <button id="refresh-quotes" class="secondary-button" type="button">刷新行情</button>
+          <button id="add-holding" class="primary-button" type="button">添加资产</button>
+        </div>
+        <details id="header-more" class="header-more" open>
+          <summary class="secondary-button">更多</summary>
+          <div class="header-more-menu">
+            <button id="open-sync" class="secondary-button sync-button" type="button">
+              云同步
+              <span id="sync-status" class="sync-dot" data-state="local">仅本机</span>
+            </button>
+            <button id="export-vault" class="secondary-button" type="button">导出备份</button>
+            <label class="secondary-button file-button" for="import-file">导入备份</label>
+            <input id="import-file" type="file" accept="application/json,.json" hidden>
+            <button id="lock-vault" class="text-button" type="button">锁定</button>
+          </div>
+        </details>
+      </nav>
+    </header>
+
+    <nav class="mobile-page-nav" aria-label="手机页面导航">
+      <button class="mobile-page-button active" type="button" data-mobile-page="overview" aria-current="page">总览</button>
+      <button class="mobile-page-button" type="button" data-mobile-page="assets">资产</button>
+      <button class="mobile-page-button" type="button" data-mobile-page="history">历史</button>
+    </nav>
+
+    <section class="summary-grid" data-mobile-section="overview" aria-label="资产摘要">
+      <article class="summary-item">
+        <div class="summary-label-row">
+          <span id="total-assets-label">总资产</span>
+          <button id="toggle-summary-privacy" class="summary-privacy-button" type="button" aria-pressed="false" aria-label="显示全页敏感数据">显示敏感数据</button>
+        </div>
+        <strong id="total-assets">******</strong>
+        <small id="included-count">0项计入净资产</small>
+      </article>
+      <article class="summary-item">
+        <span>最新估值变动</span>
+        <strong id="daily-pnl">******</strong>
+        <small id="quote-coverage">行情覆盖 0/0</small>
+      </article>
+      <article class="summary-item">
+        <span>风险资产敞口</span>
+        <strong id="gross-exposure">******</strong>
+        <small id="derivative-count">0项衍生品</small>
+      </article>
+      <article class="summary-item">
+        <span>策略偏离</span>
+        <strong id="largest-gap">******</strong>
+        <small>严格ERC · 8%目标波动率</small>
+      </article>
+    </section>
+
+    <section class="analysis-grid" data-mobile-section="overview">
+      <article class="analysis-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ACTUAL</p>
+            <h2>资产构成</h2>
+          </div>
+          <span id="currency-note" class="status-pill">人民币口径</span>
+        </div>
+        <div id="allocation-bars" class="bar-list"></div>
+      </article>
+      <article class="analysis-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">TARGET</p>
+            <h2>严格风险平价偏离</h2>
+          </div>
+          <span id="strategy-date" class="status-pill">读取中</span>
+        </div>
+        <div id="strategy-bars" class="bar-list"></div>
+      </article>
+    </section>
+
+    <section class="holdings-section" data-mobile-section="assets">
+      <div class="section-heading holdings-heading">
+        <div>
+          <p class="eyebrow">POSITIONS</p>
+          <h2>资产明细</h2>
+        </div>
+        <div class="holdings-heading-actions">
+          <span class="status-pill">人民币口径</span>
+          <button id="record-trade" class="secondary-button compact-button" type="button">记录买卖</button>
+        </div>
+      </div>
+      <article class="daily-contribution-panel">
+        <div class="daily-contribution-heading">
+          <div><small>LATEST MOVE</small><strong>最新估值贡献</strong></div>
+          <span>先按 AH股 / 美股 / 黄金 / 期货等汇总 · 点击查看主要盈利与亏损</span>
+        </div>
+        <div id="daily-contribution-chart" class="daily-contribution-chart" aria-label="最新估值贡献"></div>
+      </article>
+      <div class="insight-switch" role="group" aria-label="分类图表">
+        <button class="insight-switch-button active" type="button" data-insight-view="platform" aria-pressed="true">平台</button>
+        <button class="insight-switch-button" type="button" data-insight-view="class" aria-pressed="false">类别</button>
+        <button class="insight-switch-button" type="button" data-insight-view="strategy" aria-pressed="false">策略</button>
+      </div>
+      <div class="holding-insights-grid" aria-label="资产分类概览">
+        <article class="holding-insight-card active" data-insight-card="platform">
+          <div class="holding-insight-heading">
+            <div><small>PLATFORM</small><strong>按平台</strong></div>
+            <span>净资产</span>
+          </div>
+          <div id="platform-donut" class="donut-chart"></div>
+        </article>
+        <article class="holding-insight-card" data-insight-card="class">
+          <div class="holding-insight-heading">
+            <div><small>ASSET CLASS</small><strong>按资产类别</strong></div>
+            <span>净资产</span>
+          </div>
+          <div id="class-donut" class="donut-chart"></div>
+        </article>
+        <article class="holding-insight-card" data-insight-card="strategy">
+          <div class="holding-insight-heading">
+            <div><small>RISK PARITY</small><strong>按策略大类</strong></div>
+            <span>风险敞口</span>
+          </div>
+          <div id="strategy-donut" class="donut-chart"></div>
+        </article>
+      </div>
+      <div class="holding-controls">
+        <div class="holding-control-group">
+          <span>查看方式</span>
+          <div class="filter-row" role="group" aria-label="资产分组方式">
+            <button class="group-mode-button active" type="button" data-group-mode="underlying">底层资产</button>
+            <button class="group-mode-button" type="button" data-group-mode="platform">平台</button>
+            <button class="group-mode-button" type="button" data-group-mode="market">市场</button>
+            <button class="group-mode-button" type="button" data-group-mode="strategy">策略</button>
+          </div>
+        </div>
+        <div class="holding-control-group">
+          <span>筛选</span>
+          <div class="filter-row" role="group" aria-label="资产筛选">
+            <button class="filter-button active" type="button" data-filter="all">全部</button>
+            <button class="filter-button" type="button" data-filter="equity">权益</button>
+            <button class="filter-button" type="button" data-filter="bond">债券</button>
+            <button class="filter-button" type="button" data-filter="gold">黄金</button>
+            <button class="filter-button" type="button" data-filter="cash">现金</button>
+          </div>
+        </div>
+      </div>
+      <p class="quote-source-note">底层资产中 AH股 / 美股 / 国债期货按一级组折叠 · 期货保证金与国债期货合并 · 不同币种按最新汇率折算人民币</p>
+      <div id="holdings-empty" class="empty-state">
+        <strong>尚未录入资产</strong>
+        <span>添加第一项持仓后开始计算组合。</span>
+      </div>
+      <div id="holdings-table-wrap" class="table-wrap" hidden>
+        <table class="holdings-table">
+          <thead>
+            <tr>
+              <th>资产</th>
+              <th>持仓</th>
+              <th>最新价</th>
+              <th>当前价值</th>
+              <th>最新估值变动</th>
+              <th>风险敞口</th>
+              <th>资产权重</th>
+              <th>累计盈亏</th>
+              <th>行情</th>
+              <th><span class="sr-only">操作</span></th>
+            </tr>
+          </thead>
+          <tbody id="holdings-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="transactions-section" data-mobile-section="assets" aria-labelledby="transactions-title">
+      <div class="section-heading transactions-heading">
+        <div>
+          <p class="eyebrow">TRADES</p>
+          <h2 id="transactions-title">交易与资金记录</h2>
+        </div>
+        <div class="transactions-heading-actions">
+          <span id="transaction-count" class="status-pill">0笔记录</span>
+          <button id="toggle-transactions" class="secondary-button transaction-toggle-button" type="button" aria-expanded="false" hidden>查看全部</button>
+        </div>
+      </div>
+      <p class="transaction-source-note">买卖、资金转入转出和录入更正分别记账；只有行情与收益变化计入盈亏。</p>
+      <div id="transactions-empty" class="empty-state transaction-empty">
+        <strong>暂无交易或资金记录</strong>
+        <span>可在资产明细中点击“买卖”，或使用上方“记录买卖”。</span>
+      </div>
+      <div id="transactions-table-wrap" class="table-wrap" hidden>
+        <table class="transactions-table">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>资产</th>
+              <th>方向</th>
+              <th>成交数量</th>
+              <th>成交价</th>
+              <th>成交额</th>
+              <th>成交后持仓</th>
+              <th><span class="sr-only">操作</span></th>
+            </tr>
+          </thead>
+          <tbody id="transactions-body"></tbody>
+        </table>
+      </div>
+      <p id="transactions-limit-note" class="transaction-limit-note" hidden>默认显示最近 5 条记录，可在右上角查看全部。</p>
+    </section>
+
+    <section class="history-section" data-mobile-section="history">
+      <div class="section-heading history-heading">
+        <div>
+          <p class="eyebrow">HISTORY</p>
+          <h2>资产与盈亏记录</h2>
+        </div>
+        <div class="history-actions">
+          <span id="snapshot-count" class="status-pill">0个记录日</span>
+          <button id="record-today" class="secondary-button compact-button" type="button">记录今日</button>
+        </div>
+      </div>
+      <div class="history-change-grid" aria-label="近期盈亏变化">
+        <article><span>日盈亏</span><strong id="history-day-change">--</strong><small id="history-day-rate">--</small></article>
+        <article><span>本周盈亏</span><strong id="history-week-change">--</strong><small id="history-week-rate">--</small></article>
+        <article><span>本月盈亏</span><strong id="history-month-change">--</strong><small id="history-month-rate">--</small></article>
+      </div>
+      <div class="history-period-row" role="group" aria-label="历史周期">
+        <button class="history-period-button active" type="button" data-period="day">日</button>
+        <button class="history-period-button" type="button" data-period="week">周</button>
+        <button class="history-period-button" type="button" data-period="month">月</button>
+      </div>
+      <div class="history-visual-grid">
+        <article class="history-panel">
+          <div class="history-panel-heading"><span>总资产走势</span><strong id="history-latest-total">--</strong></div>
+          <div id="history-chart" class="history-chart" aria-label="总资产历史"></div>
+        </article>
+        <article class="history-panel">
+          <div class="history-panel-heading"><span>期间盈亏</span><small>悬停或点按查看 · 已扣除资金流与录入更正</small></div>
+          <div id="history-delta-chart" class="history-delta-chart" aria-label="期间资产变动历史"></div>
+        </article>
+      </div>
+      <article class="history-panel return-comparison-panel">
+        <div class="history-panel-heading return-comparison-heading">
+          <div>
+            <span>收益率走势对比</span>
+            <small>个人组合 vs 严格风险平价 · 8%目标波动率 · 移动鼠标查看，手机点按固定</small>
+          </div>
+          <small id="return-comparison-status">读取基准中</small>
+        </div>
+        <div class="return-comparison-summary" aria-label="最新累计收益率对比">
+          <span><em><i class="return-legend-dot personal"></i>个人组合</em><strong id="personal-cumulative-return">--</strong></span>
+          <span><em><i class="return-legend-dot benchmark"></i>严格风险平价</em><strong id="benchmark-cumulative-return">--</strong></span>
+          <span><em>累计超额</em><strong id="comparison-excess-return">--</strong></span>
+        </div>
+        <div id="return-comparison-chart" class="return-comparison-chart" aria-label="个人组合与严格风险平价累计收益率走势"></div>
+      </article>
+      <article class="performance-stats-panel" aria-labelledby="performance-stats-title">
+        <div class="performance-stats-heading">
+          <div>
+            <p class="eyebrow">PERFORMANCE</p>
+            <h3 id="performance-stats-title">个人表现指标</h3>
+          </div>
+          <small id="performance-stats-range">至少需要2个记录日</small>
+        </div>
+        <div class="performance-stats-grid">
+          <div class="performance-stat"><span>累计收益率</span><strong id="performance-total-return">--</strong><small>首个记录日至今</small></div>
+          <div class="performance-stat"><span>近30日收益率</span><strong id="performance-30d-return">--</strong><small>不足30日时暂不显示</small></div>
+          <div class="performance-stat"><span>年化波动率</span><strong id="performance-volatility">--</strong><small>至少5段有效记录</small></div>
+          <div class="performance-stat"><span>最大回撤</span><strong id="performance-max-drawdown">--</strong><small>历史峰值至低点</small></div>
+          <div class="performance-stat"><span>当前回撤</span><strong id="performance-current-drawdown">--</strong><small>相对历史峰值</small></div>
+          <div class="performance-stat"><span>盈利记录占比</span><strong id="performance-positive-ratio">--</strong><small>期间收益为正的比例</small></div>
+        </div>
+        <p class="performance-stats-note">基于台账记录日，已扣除转入、转出与录入更正。记录越连续，波动率和回撤越可靠。</p>
+      </article>
+    </section>
+  </div>
+
+  <dialog id="holding-dialog" class="holding-dialog">
+    <form id="holding-form" method="dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">POSITION</p>
+          <h2 id="dialog-title">添加资产</h2>
+        </div>
+        <button id="close-dialog" class="icon-button" type="button" aria-label="关闭" title="关闭">关闭</button>
+      </div>
+      <input id="holding-id" type="hidden">
+      <div id="holding-ledger-notice" class="holding-ledger-notice" hidden>该资产已有买卖记录。平台、数量、成本、币种和估值类型由交易记录维护；名称、代码和分类仍可修改。</div>
+      <div class="form-grid">
+        <label>账户
+          <input id="holding-account" type="text" maxlength="40" placeholder="例如：招商证券">
+        </label>
+        <label>资产名称
+          <input id="holding-name" type="text" maxlength="60" placeholder="场外基金 / ETF 可留空自动识别">
+        </label>
+        <label>代码
+          <input id="holding-code" type="text" maxlength="40" placeholder="例如：00700">
+        </label>
+        <label>资产类型
+          <select id="holding-type">
+            <option value="stock">股票</option>
+            <option value="etf">ETF</option>
+            <option value="fund">场外基金</option>
+            <option value="gold">黄金</option>
+            <option value="bond">债券</option>
+            <option value="wealth">银行理财</option>
+            <option value="deposit">存款</option>
+            <option value="cash">现金</option>
+            <option value="futures">期货</option>
+            <option value="option">期权</option>
+            <option value="other">其他</option>
+          </select>
+        </label>
+        <label class="fund-mode-field">录入方式
+          <select id="holding-fund-input-mode">
+            <option value="amount">只有当前金额（自动估算份额）</option>
+            <option value="shares">我知道份额</option>
+          </select>
+          <small class="field-hint">金额模式只需代码和当前金额</small>
+        </label>
+        <details id="holding-classification-details" class="classification-details full-span">
+          <summary>
+            <span>分类设置</span>
+            <small id="holding-classification-summary">自动判断</small>
+            <span class="classification-disclosure" aria-hidden="true">›</span>
+          </summary>
+          <div class="classification-grid">
+            <label>底层资产（可选）
+              <input id="holding-underlying-name" type="text" maxlength="40" placeholder="通常不用填；例如：标普500">
+              <small id="underlying-id-hint" class="field-hint">常见底层会自动识别并合并</small>
+            </label>
+            <label>策略分类
+              <select id="holding-bucket">
+                <option value="auto">自动判断</option>
+                <option value="a500">国内宽基</option>
+                <option value="dividend">红利低波</option>
+                <option value="gold">黄金</option>
+                <option value="bond_futures">国债期货</option>
+                <option value="cash">现金理财</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <label>资产类别
+              <select id="holding-asset-class">
+                <option value="auto">自动判断</option>
+                <option value="equity">权益</option>
+                <option value="gold">黄金</option>
+                <option value="bond">债券</option>
+                <option value="cash">现金理财</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <label>盈亏大类
+              <select id="holding-market-class">
+                <option value="auto">自动判断</option>
+                <option value="ah-equity">AH股</option>
+                <option value="us-equity">美股</option>
+                <option value="global-equity">全球权益</option>
+                <option value="gold">黄金</option>
+                <option value="bond">债券</option>
+                <option value="futures">期货</option>
+                <option value="options">期权</option>
+                <option value="cash">现金理财</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+          </div>
+        </details>
+        <label>币种
+          <select id="holding-currency">
+            <option value="CNY">人民币 CNY</option>
+            <option value="USD">美元 USD</option>
+            <option value="HKD">港币 HKD</option>
+          </select>
+        </label>
+        <label id="pricing-mode-field">估值方式
+          <select id="holding-pricing-mode">
+            <option value="auto">自动行情</option>
+            <option value="manual">手动价格</option>
+            <option value="fixed">当前金额</option>
+            <option value="interest">固定收益计息</option>
+          </select>
+        </label>
+        <label class="fund-amount-field">平台显示的当前金额
+          <input id="holding-fund-seed-amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例如：12580.36">
+          <small id="fund-calibration-hint" class="field-hint">保存时按最新已公布净值估算份额</small>
+          <small id="share-price-note" class="field-hint">场外基金不是盘中实时价；QDII净值通常会更晚</small>
+        </label>
+        <label class="fund-reference-field check-row full-span">
+          <input id="holding-intraday-estimate-enabled" type="checkbox" checked>
+          <span>用对应 ETF / 指数估算参考当日盈亏</span>
+        </label>
+        <label class="fund-reference-code-field full-span">参考代码（可选）
+          <input id="holding-intraday-proxy-code" type="text" maxlength="40" placeholder="留空自动匹配；例如：000300、SPY、QQQ">
+          <small class="field-hint">国内基金盘中使用参考行情，净值公布后自动替换；美股 QDII 使用最近一期，黄金不使用盘中参考</small>
+        </label>
+        <label class="quantity-field">数量 / 份额 / 手数
+          <input id="holding-quantity" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+        <label class="price-field">当前价格
+          <input id="holding-price" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+        <label class="price-field">成本 / 开仓价
+          <input id="holding-entry-price" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+        <label class="derivative-field">方向
+          <select id="holding-direction">
+            <option value="1">多头 / 买入</option>
+            <option value="-1">空头 / 卖出</option>
+          </select>
+        </label>
+        <label class="multiplier-field">合约乘数
+          <input id="holding-multiplier" type="number" min="0" step="any" inputmode="decimal" value="1">
+        </label>
+        <label class="option-field">单份期权Delta
+          <input id="holding-delta" type="number" min="-1" max="1" step="0.01" inputmode="decimal">
+        </label>
+        <label class="option-field">标的指数点位
+          <input id="holding-underlying-price" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+        <label class="fixed-field">当前金额
+          <input id="holding-fixed-value" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+        <label class="interest-field">年化收益率
+          <div class="suffix-input"><input id="holding-annual-rate" type="number" min="-100" step="0.01" inputmode="decimal"><span>%</span></div>
+        </label>
+        <label class="interest-field">金额日期
+          <input id="holding-valuation-date" type="date">
+        </label>
+        <label class="full-span">备注
+          <input id="holding-notes" type="text" maxlength="100" placeholder="可选">
+        </label>
+        <label class="full-span">这次金额变化的性质
+          <select id="holding-change-kind">
+            <option value="external">转入 / 转出资金（不算盈亏）</option>
+            <option value="correction">更正录入（不算盈亏）</option>
+            <option value="income">收益 / 分红（计入盈亏）</option>
+          </select>
+          <small class="field-hint">只有资产总价值发生变化时才会记一笔；行情自动更新不会产生记录</small>
+        </label>
+        <label class="check-row full-span">
+          <input id="holding-include-nav" type="checkbox" checked>
+          <span>计入总资产</span>
+        </label>
+      </div>
+      <p id="holding-form-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="cancel-holding" class="secondary-button" type="button">取消</button>
+        <button id="save-holding" class="primary-button" type="submit" value="save">保存资产</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="trade-dialog" class="trade-dialog">
+    <form id="trade-form" method="dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">BUY / SELL</p>
+          <h2>记录买卖</h2>
+        </div>
+        <button id="close-trade-dialog" class="icon-button" type="button" aria-label="关闭" title="关闭">关闭</button>
+      </div>
+      <div class="trade-form-grid">
+        <label class="full-span">资产
+          <select id="trade-holding"></select>
+          <small id="trade-position-hint" class="field-hint"></small>
+        </label>
+        <label>方向
+          <select id="trade-type">
+            <option value="buy">买入</option>
+            <option value="sell">卖出</option>
+          </select>
+        </label>
+        <label>录入方式
+          <select id="trade-input-mode">
+            <option value="quantity">按数量 / 份额</option>
+            <option value="amount">按成交金额</option>
+          </select>
+        </label>
+        <label class="trade-quantity-field">成交数量 / 份额
+          <input id="trade-quantity" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+        <label class="trade-amount-field" hidden>成交金额
+          <input id="trade-amount" type="number" min="0" step="0.01" inputmode="decimal">
+          <small class="field-hint">系统会根据成交价格推算份额，并标记为“估”</small>
+        </label>
+        <label>成交价格 / 净值
+          <input id="trade-price" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+        <label>成交日期
+          <input id="trade-date" type="date" required>
+        </label>
+      </div>
+      <div id="trade-preview" class="trade-preview" aria-live="polite">选择资产并填写成交信息</div>
+      <p id="trade-form-error" class="form-error" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button id="cancel-trade" class="secondary-button" type="button">取消</button>
+        <button id="save-trade" class="primary-button" type="submit" value="save">保存买卖</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="sync-dialog" class="sync-dialog">
+    <div class="dialog-header">
+      <div>
+        <p class="eyebrow">ENCRYPTED SYNC</p>
+        <h2>加密云同步</h2>
+      </div>
+      <button id="close-sync-dialog" class="icon-button" type="button" aria-label="关闭" title="关闭">关闭</button>
+    </div>
+    <p class="sync-privacy-note">资产在本机加密后才会上传。云端只保存密文，无法读取资产名称、金额或持仓。</p>
+    <div id="sync-unavailable" class="sync-notice" hidden>
+      云同步尚未配置。请先按 <code>SYNC_SETUP.md</code> 创建 Supabase 项目并填写 <code>sync-config.js</code>。
+    </div>
+    <form id="sync-auth-form" class="sync-auth-form">
+      <label>同步账户邮箱
+        <input id="sync-email" type="email" autocomplete="username" required placeholder="name@example.com">
+      </label>
+      <label>同步账户密码
+        <input id="sync-password" type="password" minlength="8" autocomplete="current-password" required>
+      </label>
+      <p id="sync-auth-error" class="form-error" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button id="create-sync-account" class="secondary-button" type="button">创建账户</button>
+        <button id="sign-in-sync" class="primary-button" type="submit">登录并同步</button>
+      </div>
+    </form>
+    <section id="sync-account-panel" class="sync-account-panel" hidden>
+      <dl class="sync-account-details">
+        <div><dt>同步账户</dt><dd id="sync-account-email">—</dd></div>
+        <div><dt>同步状态</dt><dd id="sync-last-time">尚未同步</dd></div>
+      </dl>
+      <p id="sync-panel-error" class="form-error" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions sync-account-actions">
+        <button id="disconnect-sync" class="text-button" type="button">退出同步账户</button>
+        <button id="sync-now" class="primary-button" type="button">立即同步</button>
+      </div>
+    </section>
+  </dialog>
+
+  <dialog id="confirm-dialog" class="confirm-dialog">
+    <form method="dialog">
+      <h2 id="confirm-title">确认操作？</h2>
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <button class="secondary-button" value="cancel">取消</button>
+        <button id="confirm-action" class="danger-button" value="confirm">确认</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="sync-config.js"></script>
+  <script src="auth-config.js"></script>
+  <script src="ledger-core.js?v=20260828-ledger17"></script>
+  <script src="vault.js?v=20260828-ledger17"></script>
+</body>
+</html>
